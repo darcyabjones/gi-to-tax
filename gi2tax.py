@@ -3,7 +3,7 @@
 #Version 1. Darcy Jones, January 2014.
 #Contact Darcy Jones, darcy.ab.jones@gmail.com
 
-    #-----------------------------------------------------------------------------------#
+    #----------------------------------- LICENSE ---------------------------------------#
     #    gi2tax - finds taxonomic information for a given set of genbank identifiers    #
     #    Copyright (C) 2013  Darcy Jones                                                #
     #                                                                                   #
@@ -15,7 +15,7 @@
     #    This program is distributed in the hope that it will be useful,                #
     #    but WITHOUT ANY WARRANTY; without even the implied warranty of                 #
     #    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the                  #
-    #    GNU General Public License for more details.                                   # 
+    #    GNU General Public License for more details.                                   #
     #                                                                                   #
     #    You should have received a copy of the GNU General Public License              #
     #    along with this program.  If not, see <http://www.gnu.org/licenses/>.          #
