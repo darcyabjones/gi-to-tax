@@ -30,14 +30,17 @@ from ftplib import FTP;
 import os;
 import time;
 import pickle;
+import json;
 import calendar;
 import sqlite3;
 import zipfile;
 import tempfile;
 import re;
-from Bio import SeqIO;
+from Bio import SeqIO, Phylo;
 from Bio.Blast import NCBIXML; #for generic xml handling
 from shutil import rmtree;
+from Bio.Phylo.PhyloXML import Phylogeny, Clade, Taxonomy, Id;
+
 
 
 ###Function definitions.
@@ -515,6 +518,8 @@ def giTaxidContainer(gi_ti_file_, archive_files_, gis_, index_=False):
     except:
         debug('Index Failed');
         debug(sys.exc_info());
+        if debug:
+            raise;
     finally:
         extracted_file_.close();
         debug("Closed {}".format(gi_ti_file_))
@@ -548,9 +553,9 @@ def indexGiTaxidFile(cursor_, extracted_file_, gi_ti_file_, gis_):
         gi_ = int(record_[0]);
         ti_ = int(record_[1]);
         if gi_ in gis_:
-            gi_dict_[gi_]={'gi_taxid':ti_};
-            gi_dict_[gi_]=findTaxPath(cursor_, ti_, gi_dict_[gi_]);
-            #outfile_writer(outfile_, gi_, gi_dict_[gi_]);
+            gi_dict_[gi_]={'gi':gi_,'taxid':ti_, 'tax_path':[]};
+            gi_dict_[gi_]['tax_path']=findTaxPath(cursor_, ti_, gi_dict_[gi_]['tax_path']);
+            output_handler(gi_dict_[gi_]);
             gis_.discard(gi_);
             if not quiet:
                 sys.stdout.write("\033[2A\033[K"); # Moves two lines up, and clears to the end of the line.
@@ -619,13 +624,13 @@ def giTaxidFile(cursor_, extracted_file_, gi_ti_file_, gis_):
                 last_position=gi_taxid_index_[i][1];
                 for line_ in iter(extracted_file_.readline, ''):
                     if len(gi_block_)>0 and extracted_file_.tell()<=upper_bound_:
-                        record_= line_.rstrip('\n').split('\t');
-                        gi_ = int(record_[0]);
+                        _record_= line_.rstrip('\n').split('\t');
+                        gi_ = int(_record_[0]);
                         if gi_ in gis_:
-                            ti_ = int(record_[1]);
-                            gi_dict_[gi_]={'gi_taxid':ti_};
-                            gi_dict_[gi_]=findTaxPath(cursor_, ti_, gi_dict_[gi_]);
-                            #outfile_writer(outfile_, gi_, gi_dict_[gi_]);
+                            ti_ = int(_record_[1]);
+                            gi_dict_[gi_]={'gi':gi_,'taxid':ti_, 'tax_path':[]};
+                            gi_dict_[gi_]['tax_path']=findTaxPath(cursor_, ti_, gi_dict_[gi_]['tax_path']);
+                            output_handler(gi_dict_[gi_]);
                             gis_.discard(gi_);
                             gi_block_.discard(gi_);
                             if not quiet:
@@ -650,45 +655,20 @@ def giTaxidFile(cursor_, extracted_file_, gi_ti_file_, gis_):
 
     return gis_; # Any problems ? This set should have len = 0. if len >0 the program wasn't able to find the gi in the gi_ti file given (perhaps nuc vs protein or bad gi call);
 
-def findGisFromBlock(cursor_, extracted_file_, gi_block_, gis_, upper_bound_, gi_taxid_index_, gi_dict_, len_gi_taxid_index_, max_len_gi_taxid_index_, found_count_, len_gis_):
-    debug('funct findGisFromBlock');
-    last_position=extracted_file_.tell()
-    for line_ in iter(extracted_file_.readline, ''):
-        if len(gi_block_)>0 and extracted_file_.tell()<=upper_bound_:
-            record_= line_.rstrip('\n').split('\t');
-            gi_ = int(record_[0]);
-            if gi_ in gis_:
-                ti_ = int(record_[1]);
-                gi_dict_[gi_]={'gi_taxid':ti_};
-                gi_dict_[gi_]=findTaxPath(cursor_, ti_, gi_dict_[gi_]);
-                #outfile_writer(outfile_, gi_, gi_dict_[gi_]);
-                gis_.discard(gi_);
-                gi_block_.discard(gi_);
-                if not quiet:
-                    sys.stdout.write("\033[1A\033[K"); # Moves two lines up, and clears to the end of the line.
-                    print('\tFound {} of {} gi\'s'.format(found_count_, len_gis_));
-                #if len_gi_taxid_index_<max_len_gi_taxid_index_: # Adds index for found gis, impoves researching same gis Looking for best way to add this.
-                #    gi_taxid_index_.append((gi_, last_position)); # Stores end of line for gi.
-                #    len_gi_taxid_index_+=1;
-                found_count_+=1;
-        else:
-            break;
-        last_position=extracted_file_.tell()
-    return cursor_, extracted_file_, gi_block_, gis_, upper_bound_, gi_taxid_index_, gi_dict_, len_gi_taxid_index_, max_len_gi_taxid_index_, found_count_, len_gis_;
-
-def findTaxPath(cursor_, ti_, gi_dict_entry_): #Recursive function inputs ti_, returns dict of all parent tis;
+def findTaxPath(cursor_, ti_, gi_tax_path_): #Recursive function inputs ti_, returns dict of all parent tis;
     debug("### funct findTaxPath ###", gap_=True);
     cursor_.execute("""
         SELECT * FROM nodes WHERE tax_id = ?
         """, (ti_,));
     node_row_=cursor_.fetchone(); # We specified row_factory as sqlite3.Row earlier so we can access values by column name, ACE!
     rank=node_row_['rank']; # eg Superkingdom, kingdom, genus etc.
-    parent_tax_id=node_row_['parent_tax_id'];
+    parent_taxid=node_row_['parent_tax_id'];
 
     cursor_.execute("""
         SELECT * FROM names WHERE tax_id = ?
         """, (ti_,));
     name_row_=cursor_.fetchone();
+    
     if name_row_['unique_name'] != "": # If there is an unique name specified use that name rather than the duplicate
         rank_name=name_row_['unique_name'];
     else: # if there wasn't an unique name specified we can assume that the name_txt column is unique.
@@ -696,33 +676,127 @@ def findTaxPath(cursor_, ti_, gi_dict_entry_): #Recursive function inputs ti_, r
 
     debug('{} is a {} called {}'.format(ti_, rank, rank_name));
 
-    if rank != 'no rank':
-        gi_dict_entry_['{}_ti'.format(rank)]=ti_;
-        gi_dict_entry_[rank]=rank_name;
-    else:
-        if 'no_rank' not in gi_dict_entry_:
-            gi_dict_entry_['no_rank']=[rank_name];
-        else:
-            gi_dict_entry_['no_rank'].append(rank_name);
-
-    if parent_tax_id != 1: # 1 is the lowest node possible. All taxonomic paths end up at 1 after superkingdom.
-        gi_dict_entry_=findTaxPath(cursor_, parent_tax_id, gi_dict_entry_);
+    new_node_entry_={'taxid':ti_, 'parent_taxid':parent_taxid, 'rank':rank, 'rank_name':rank_name};
+    gi_tax_path_.append(new_node_entry_);
+    if parent_taxid != 1: # 1 is the lowest node possible. All taxonomic paths end up at 1 after superkingdom.
+        gi_tax_path_=findTaxPath(cursor_, parent_taxid, gi_tax_path_);
     
-    return gi_dict_entry_;
+    return gi_tax_path_;
 
-def outfile_writer(outfile_, gi_, gi_dict_entry_):
-    #   column_headings_="gi\ttax_id\tsubspecies\tspecies\tsubgenus\tgenus\tsubfamily\tfamily\tsuperfamily\tsuborder\torder\tsuperorder\tsubclass\tclass\tsuperclass\tsubphylum\tphylum\tsuperphylum\tsubkingdom\tkingdom\tsuperkingdom\tno_rank\n"
-    row_=[str(gi_), str(gi_dict_entry_['gi_taxid'])];
+
+def output_handler(record_):
+    debug('funct output_handler');
+    if 'newick' in output_format or 'phyloXML' in output_format:
+        treeFormatHandler(record_);
+
+    if 'SQLite' in output_format or 'pickle' in output_format or 'json' in output_format or 'tab' in output_format:
+        row_=columnFormatHandler(record_);
+
+    if 'SQLite' in output_format:
+        output_cursor.execute("""
+        insert into taxonomy(gi,taxid,subspecies,species,subgenus,genus,subfamily,family,superfamily,suborder,order_,superorder,subclass,class,superclass,subphylum,phylum,superphylum,subkingdom,kingdom,superkingdom,no_rank)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, rowWriter(row_, 'SQLite'));
+
+    if 'pickle' in output_format or 'json' in output_format:
+        output_dict[record_['gi']] = row_;
+
+    if 'tab' in output_format:
+        out_tab_file.write(rowWriter(row_, 'tab'));
+
+def treeFormatHandler(record_):
+    debug('funct treeFormatHandler')
+    debug(record_)
+    print("")
+    for node_ in record_['tax_path']:
+        if node_['taxid'] in tree_dict:
+            if 'rank' not in tree_dict[node_['taxid']]:
+                tree_dict[node_['taxid']]['rank']=node_['rank'];
+            if 'rank_name' not in tree_dict[node_['taxid']]:
+                tree_dict[node_['taxid']]['rank_name']=node_['rank_name'];
+            if 'children' not in tree_dict[node_['taxid']]:
+                tree_dict[node_['taxid']]['children'] = set();
+        else:
+            tree_dict[node_['taxid']]={'rank':node_['rank'], 'rank_name':node_['rank_name'], 'children':set()};
+        if node_['parent_taxid'] in tree_dict:
+            tree_dict[node_['parent_taxid']]['children'].add(node_['taxid']);
+        else:
+            tree_dict[node_['parent_taxid']]={'children':{node_['taxid']}};
+    if record_['taxid'] in tree_dict:
+        tree_dict[record_['taxid']]['gi']=record_['gi'];
+    else:
+        tree_dict[record_['taxid']]={'gi':record_['gi']};
+
+def columnFormatHandler(record_):
+    debug('funct columnFormatHandler')
+    row_={'gi':record_['gi'], 'taxid':record_['taxid']};
+    no_rank=[];
+    for node_ in record_['tax_path']:
+        rank=node_['rank'];
+        rank_name=node_['rank_name'];
+        if rank != 'no rank':
+            row_['{}_taxid'.format(rank)]=node_['taxid'];
+            row_[rank]=rank_name;
+        else:
+            no_rank.append(rank_name);
+    row_['no_rank']=';'.join(no_rank);
+    return row_;
+
+def rowWriter(row_, type_):
+    debug('funct rowWriter')
+    out_row_=[row_['gi'], row_['taxid']];
     column_headings_=['subspecies','species','subgenus','genus','subfamily','family','superfamily','suborder','order','superorder','subclass','class','superclass','subphylum','phylum','superphylum','subkingdom','kingdom','superkingdom','no_rank'];
 
     for rank_ in column_headings_:
-        if rank_ in gi_dict_entry_:
-            row_.append(gi_dict_entry_[rank_]);
+        if type_ == 'SQLite' and rank_ == 'order':
+            rank_='order_';
+        if rank_ in row_:
+            out_row_.append(row_[rank_]);
         else:
-            row_.append('.');
+            out_row_.append('.');
 
-    row_string_= '\t'.join(row_);
-    outfile_.write('{}\n'.format(row_string_));
+    if type_ == 'SQLite':
+        return tuple(out_row_);
+    elif type_ == 'tab':
+        return '{}\n'.format('\t'.join(row_));
+
+
+def treeGenerator():
+    debug('funct treeGenerator', gap_=True);
+    children=treeGeneratorRecurse(taxid=1);
+    
+    return Phylogeny(name='gi2tax - Common tree', root= children);
+    
+
+def treeGeneratorRecurse(taxid=1):
+    children_=[];
+    for child_ in tree_dict[taxid]['children']:
+        children_.append(treeGeneratorRecurse(child_));
+    if len(children_)==0:
+        children_=None;
+
+    if taxid == 1:
+        rank_name_=None;
+        node_id_=1, 
+        tax_data_=None
+
+    else:
+        if 'rank' in tree_dict[taxid]:
+            rank_=tree_dict[taxid]['rank']
+            if rank_=='no_rank' or rank_=='no rank' or rank_=='superkingdom':
+                rank_=None;
+        else:
+            rank_=None;
+        
+        if 'gi' in tree_dict[taxid]:
+            rank_name_='gi|{} {}'.format(tree_dict[taxid]['gi'],tree_dict[taxid]['rank_name']);
+            node_id_=tree_dict[taxid]['gi'];
+        else:
+            rank_name_=tree_dict[taxid]['rank_name'];
+            node_id_=taxid;
+        tax_data_ = Taxonomy(id= Id(taxid, provider='ncbi_taxonomy'), scientific_name=tree_dict[taxid]['rank_name'], rank=rank_);
+
+    return Clade(name=rank_name_, node_id=node_id_, clades=children_, taxonomies=tax_data_);
 
 
 ###Code
@@ -732,7 +806,6 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
     ## Check if files are in local directory or are up to date if not > download them
 
     if output_path == '-' or output_path == sys.stdout:
-        output_path=sys.stdout;
         quiet=True;
     if input_path == '-' or input_path == sys.stdin:
         input_path=sys.stdin;
@@ -742,7 +815,7 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
         print('####################### Begin gi2tax #######################\n');
         print('Using parameters...');
         print('\tinput path: {}'.format(input_path));
-        print('\tinput format: {}'.format(input_format))
+        print('\tinput format: {}'.format(input_format));
         print('\toutput path: {}'.format(output_path));
         print('\toutput format: {}'.format(' '.join(output_format)));
         print('\tdatabase path: {}'.format(db_path));
@@ -801,31 +874,101 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
         archive_files = findArchiveFiles(db_path_files, archive_files);
         debug("Updated Archives: {}".format(archive_files));
 
-    if (db_type == 'protein' or db_type == 'both') and (not os.path.isfile(os.path.join(db_path, 'gi_taxid_prot.index')) or reindex):
-        gis=giTaxidContainer('gi_taxid_prot.dmp', archive_files, gis, index_=True);
-    elif db_type == 'protein' or db_type == 'both':
-        gis=giTaxidContainer('gi_taxid_prot.dmp', archive_files, gis, index_=False);
-    if (db_type == 'nucleotide' or db_type == 'both') and (not os.path.isfile(os.path.join(db_path, 'gi_taxid_nucl.index')) or reindex):
-        gis=giTaxidContainer('gi_taxid_nucl.dmp', archive_files, gis, index_=True);
-    elif db_type == 'nucleotide' or db_type == 'both':
-        gis=giTaxidContainer('gi_taxid_nucl.dmp', archive_files, gis, index_=False); 
+    try:
+        if 'newick' in output_format or 'phyloXML' in output_format:
+            global tree_dict;
+            tree_dict={};
+        if 'SQLite' in output_format:
+            global output_connection, output_cursor;
+            if output_path=='-' or output_path==sys.stdout:
+                outfile_='gi2tax_output'
+            else:
+                outfile_=output_path;
+            output_connection= sqlite3.connect('{}.db'.format(os.path.splitext(outfile_)[0]));
+            output_cursor= output_connection.cursor();
+            output_cursor.execute("drop table if exists taxonomy"); #  if the table is already in the database, ie if we are updating the database, delete the previous table.
+            output_cursor.execute('''
+                create table taxonomy
+                (gi integer primary key, taxid integer, subspecies text, species text, subgenus text, genus text, subfamily text, family text, superfamily text, suborder text, order_ text, superorder text, subclass text, class text, superclass text, subphylum text, phylum text, superphylum text, subkingdom text, kingdom text, superkingdom text, no_rank text)
+            ''');
 
-    if len(gis) != 0:
+        if 'pickle' in output_format or 'json' in output_format:
+            global output_dict;
+            output_dict={};
+        if 'tab' in output_format:
+            global out_tab_file;
+            if output_path == sys.stdout or output_path == '-':
+                out_tab_file=sys.stdout;
+            else:
+                out_tab_file=open(os.path.splitext(output_path)[0], 'w');
+            column_headings_=['gi', 'taxid', 'subspecies','species','subgenus','genus','subfamily','family','superfamily','suborder','order','superorder','subclass','class','superclass','subphylum','phylum','superphylum','subkingdom','kingdom','superkingdom','no_rank'];
+            out_tab_file.write('{}\n'.format('\t'.join(column_headings_)));
+
+        if (db_type == 'protein' or db_type == 'both') and (not os.path.isfile(os.path.join(db_path, 'gi_taxid_prot.index')) or reindex):
+            gis=giTaxidContainer('gi_taxid_prot.dmp', archive_files, gis, index_=True);
+        elif db_type == 'protein' or db_type == 'both':
+            gis=giTaxidContainer('gi_taxid_prot.dmp', archive_files, gis, index_=False);
+        if (db_type == 'nucleotide' or db_type == 'both') and (not os.path.isfile(os.path.join(db_path, 'gi_taxid_nucl.index')) or reindex):
+            gis=giTaxidContainer('gi_taxid_nucl.dmp', archive_files, gis, index_=True);
+        elif db_type == 'nucleotide' or db_type == 'both':
+            gis=giTaxidContainer('gi_taxid_nucl.dmp', archive_files, gis, index_=False);
+
+        if len(gis) != 0:
+            if not quiet:
+                print('Could not find taxonomic information for gis: \n\t{}'.format(gis));
+
+        if 'newick' in output_format or 'phyloXML' in output_format:
+            common_tree=treeGenerator();
+
+    except:
+        debug('Error in finding taxonomic path and writing files.')
+        debug(sys.exc_info());
+        if debug:
+            raise;
+
+    finally:
+        if 'tab' in output_format:
+            if isinstance(out_tab_file, file) and out_tab_file != sys.stdout:
+                out_tab_file.close();
+        if 'SQLite' in output_format:
+            output_connection.commit();
+            output_connection.close();
+        if 'pickle' in output_format:
+            if output_path == '-' or output_path == sys.stdout:
+                with open('gi2tax_output.pickle', 'w') as outfile_:
+                    pickle.dump(output_dict, outfile_, protocol=2); # Write the updated versions dict to the Versions file. NB i'm using protocol 2 for backwards compatibilty with python 2.*
+            else:
+                with open('{}.pickle'.format(os.path.splitext(output_path)[0]), 'w') as outfile_:
+                    pickle.dump(output_dict, outfile_, protocol=2); # Write the updated versions dict to the Versions file. NB i'm using protocol 2 for backwards compatibilty with python 2.*
+        if 'json' in output_format:
+            if output_path == '-' or output_path == sys.stdout:
+                with open('gi2tax_output.json', 'w') as outfile_:
+                    json.dump(output_dict, outfile_);
+            else:
+                with open('{}.json'.format(os.path.splitext(output_path)[0]), 'w') as outfile_:
+                    json.dump(output_dict, outfile_);
+        if 'newick' in output_format:
+            if output_path == '-' or output_path == sys.stdout:
+                Phylo.write([common_tree], sys.stdout, 'newick')
+            else:
+                with open('{}.nwk'.format(os.path.splitext(output_path)[0]), 'w') as outfile_:
+                    Phylo.write([common_tree], outfile_, 'newick')
+        if 'phyloXML' in output_format:
+            if output_path == '-' or output_path == sys.stdout:
+                Phylo.write([common_tree], sys.stdout, 'phyloxml')
+            else:
+                with open('{}.xml'.format(os.path.splitext(output_path)[0]), 'w') as outfile_:
+                    Phylo.write([common_tree], outfile_, 'phyloxml')
         if not quiet:
-            print('Could not find taxonomic information for gis: \n\t{}'.format(gis));
-
-
-
-    if not quiet:
-        print('####################### End gi2tax #######################\n');
+            print('####################### End gi2tax #######################\n');
 
 if __name__== '__main__':
     ###Argument Handling
     arg_parser=argparse.ArgumentParser(description='description');
     arg_parser.add_argument("-f", '--input_path', default=None, help="Path to input file(s) or directory, enter '-' for stdin (default). You may indicate multiple files/directories or combinations by separating with a space eg. -f one.faa two/ etc.");
     arg_parser.add_argument("-g", '--input_format', default="regex", help="The format of the files that you are finding gi's from. Default = Use a regular expression pattern", choices=['regex', 'blastXML', 'plain', 'fasta', 'clustal']);    
-    arg_parser.add_argument("-o", '--output_path', default="-", help="Path to output file, enter '-' for stdout (default)");
-    arg_parser.add_argument("-p", '--output_format', nargs='*',default=["tab"], help="Format(s) to output the taxonomic information. You may specify multiple output formats by separating with a space. Default = tab delimited file.", choices=['tab', 'pickle', 'json', 'tree', 'SQLite']);
+    arg_parser.add_argument("-o", '--output_path', default=None, help="Path to output file, enter '-' for stdout. Default for tab output is stdout. Default for sqlite, json, and pickle creates an 'gi2tax_output.*' file in working direcory.");
+    arg_parser.add_argument("-p", '--output_format', nargs='*',default=["tab"], help="Format(s) to output the taxonomic information. You may specify multiple output formats by separating with a space. Default = tab delimited file.", choices=['tab', 'pickle', 'json', 'newick', 'phyloXML', 'SQLite']);
     arg_parser.add_argument("-d", '--db_path', default="./tax_db/", help="Path to SQLite taxonomic db (this should be a directory/folder). If no db exists at path one will be created. Default= ./tax_db/");
     arg_parser.add_argument("-t", '--db_type', default='both', help="Which set of gi's do you want to map to the taxonomy database. default='both'.", choices=['protein', 'nucleotide', 'both']);
     arg_parser.add_argument("-u", '--update', default=False, action='store_true', help="Boolean toggle. Option to update both the archives and the taxonomic db.");
