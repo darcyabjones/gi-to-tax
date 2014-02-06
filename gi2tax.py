@@ -34,12 +34,12 @@ import json;
 import calendar;
 import sqlite3;
 import zipfile;
-import tempfile;
 import re;
 from Bio import SeqIO, Phylo;
 from Bio.Blast import NCBIXML; #for generic xml handling
-from shutil import rmtree;
 from Bio.Phylo.PhyloXML import Phylogeny, Clade, Taxonomy, Id;
+from Bio.Phylo.BaseTree import Tree;
+from Bio.Phylo.BaseTree import Clade as Clade2
 
 
 
@@ -70,7 +70,7 @@ def findDbPathContents():
 
 def updateArchives():
     if not quiet:
-        print('\n##### Checking local tax archives  #####');
+        print('##### Checking local tax archives  #####');
         print('Connecting to ncbi ftp.');
     debug('### funct updateArchives ###');
     ftp_=connectTaxFTP(); # Connect to the ncbi ftp server
@@ -302,19 +302,19 @@ def localArchiveQC(file_, ftp_, versions_dict_):
         return True; # ie it is ok
 
 
-def archiveFileExtractor(archive_path_, tempfolder_, member_): # Archive path is the archive that you want to use. member_ is the file within the archive that you want.
+def archiveFileExtractor(archive_path_, member_): # Archive path is the archive that you want to use. member_ is the file within the archive that you want.
     #   Takes an archive file in .zip, .tar.gz, .gz, .tar.Z and returns an open file, saved in a temporary directory
     #   Note that member really should always be specified.
     debug('### funct archiveFileExtractor ###', gap_=True);
 
     if not quiet:
-        print('\nExtracting archive {}...'.format(archive_path_));
+        print('\nExtracting {} from archive {}...'.format(member_, archive_path_));
     if zipfile.is_zipfile(archive_path_):
         archive_=zipfile.ZipFile(archive_path_);
-        extracted_file_ = archive_.extract(member_, tempfolder_); # Note that this returns a file into the temp folder.
+        extracted_file_ = archive_.extract(member_, db_path); # Note that this returns a file into the temp folder.
         if not quiet:
             sys.stdout.write("\033[1A\033[K"); # Moves one line up, and clears to the end of the line.
-            print('Extracting archive {}...  Done'.format(archive_path_));
+            print('Extracting {} from archive {}...  Done'.format(member_, archive_path_));
         return open(extracted_file_, 'rU');
 
     else:
@@ -322,7 +322,7 @@ def archiveFileExtractor(archive_path_, tempfolder_, member_): # Archive path is
             if os.path.isfile(archive_path_):
                 if not quiet:
                     sys.stdout.write("\033[1A\033[K"); # Moves one line up, and clears to the end of the line.
-                    print('Extracting archive {}...  Done'.format(archive_path_));
+                    print('Extracting {} from archive {}...  Done'.format(member_, archive_path_));
                 return open(archive_path_);
         except:
             debug(sys.exc_info());
@@ -338,25 +338,19 @@ def updateDB(archive_files_):
     cursor_= connection_.cursor();
 
     try:
-        tdir_=tempfile.mkdtemp(); # using mkdtemp instead of TemporaryDirectory() for backwards compatibility with python 2.3+
         if not quiet:
             print('Generating table: nodes.');
-        extracted_file_ = archiveFileExtractor(archive_files_['nodes.dmp'], tdir_, 'nodes.dmp');
+        extracted_file_ = archiveFileExtractor(archive_files_['nodes.dmp'], 'nodes.dmp');
         success_= nodesTable(connection_, cursor_, extracted_file_);
         extracted_file_.close()
         if not quiet:
             print('Generating table: names.');
-        extracted_file_ = archiveFileExtractor(archive_files_['names.dmp'], tdir_, 'names.dmp');
+        extracted_file_ = archiveFileExtractor(archive_files_['names.dmp'], 'names.dmp');
         success_= namesTable(connection_, cursor_, extracted_file_);
         extracted_file_.close();
 
     except KeyboardInterrupt:
         sys.stderr.write('Keyboard Interrupt: user cancelled sqlite db write in gi2tax, cannot continue.\n');
-        try: # We dont want these extracted files hangin around. Delete them and save some space!
-            rmtree(tdir_); # from shutil module, Deletes everything in the temp directory
-            debug('Deleted temporary directory: {}'.format(tdir_));
-        except:
-            sys.stderr.write('ERROR could not delete temp dir: {}'.format(tdir_)); # nb errno # 2 is no such directory
         sys.exit();
     except:
         debug(sys.exc_info());
@@ -365,10 +359,7 @@ def updateDB(archive_files_):
         try: # We dont want these extracted files hangin around. Delete them and save some space!
             if isinstance(extracted_file_, file):
                 extracted_file_.close();
-            rmtree(tdir_); # from shutil module, Deletes everything in the temp directory
-            debug('Deleted temporary directory: {}'.format(tdir_));
         except:
-            debug('ERROR could not delete temp dir: {}'.format(tdir_));
             debug(sys.exc_info()); # nb errno # 2 is no such directory
     return success_;
 
@@ -510,7 +501,7 @@ def giTaxidContainer(gi_ti_file_, archive_files_, gis_, index_=False):
     connection_.row_factory = sqlite3.Row;
     cursor_= connection_.cursor();
     try:
-        extracted_file_ = archiveFileExtractor(archive_files_[gi_ti_file_], db_path, gi_ti_file_);
+        extracted_file_ = archiveFileExtractor(archive_files_[gi_ti_file_], gi_ti_file_);
         if index_:
             gis_ = indexGiTaxidFile(cursor_, extracted_file_, gi_ti_file_, gis_);
         else:
@@ -705,9 +696,7 @@ def output_handler(record_):
         out_tab_file.write(rowWriter(row_, 'tab'));
 
 def treeFormatHandler(record_):
-    debug('funct treeFormatHandler')
-    debug(record_)
-    print("")
+    debug('funct treeFormatHandler', gap_=True);
     for node_ in record_['tax_path']:
         if node_['taxid'] in tree_dict:
             if 'rank' not in tree_dict[node_['taxid']]:
@@ -743,13 +732,15 @@ def columnFormatHandler(record_):
     return row_;
 
 def rowWriter(row_, type_):
-    debug('funct rowWriter')
-    out_row_=[row_['gi'], row_['taxid']];
+    debug('funct rowWriter');
+    debug(row_);
+    if type_=='tab':
+        out_row_=[str(row_['gi']), str(row_['taxid'])];
+    else:
+        out_row_=[row_['gi'], row_['taxid']];
     column_headings_=['subspecies','species','subgenus','genus','subfamily','family','superfamily','suborder','order','superorder','subclass','class','superclass','subphylum','phylum','superphylum','subkingdom','kingdom','superkingdom','no_rank'];
 
     for rank_ in column_headings_:
-        if type_ == 'SQLite' and rank_ == 'order':
-            rank_='order_';
         if rank_ in row_:
             out_row_.append(row_[rank_]);
         else:
@@ -758,20 +749,19 @@ def rowWriter(row_, type_):
     if type_ == 'SQLite':
         return tuple(out_row_);
     elif type_ == 'tab':
-        return '{}\n'.format('\t'.join(row_));
+        return '{}\n'.format('\t'.join(out_row_));
 
 
-def treeGenerator():
-    debug('funct treeGenerator', gap_=True);
-    children=treeGeneratorRecurse(taxid=1);
+def phyloxmlTreeGenerator():
+    debug('funct phyloxmlTreeGenerator', gap_=True);
+    children=phyloxmlTreeGeneratorRecurse(taxid=1);
     
     return Phylogeny(name='gi2tax - Common tree', root= children);
-    
 
-def treeGeneratorRecurse(taxid=1):
+def phyloxmlTreeGeneratorRecurse(taxid=1):
     children_=[];
     for child_ in tree_dict[taxid]['children']:
-        children_.append(treeGeneratorRecurse(child_));
+        children_.append(phyloxmlTreeGeneratorRecurse(child_));
     if len(children_)==0:
         children_=None;
 
@@ -789,15 +779,48 @@ def treeGeneratorRecurse(taxid=1):
             rank_=None;
         
         if 'gi' in tree_dict[taxid]:
-            rank_name_='gi|{} {}'.format(tree_dict[taxid]['gi'],tree_dict[taxid]['rank_name']);
+            rank_name_='gi|{}'.format(tree_dict[taxid]['gi']);
             node_id_=tree_dict[taxid]['gi'];
         else:
-            rank_name_=tree_dict[taxid]['rank_name'];
+            rank_name_=None;
             node_id_=taxid;
-        tax_data_ = Taxonomy(id= Id(taxid, provider='ncbi_taxonomy'), scientific_name=tree_dict[taxid]['rank_name'], rank=rank_);
+    this_node_ = Clade(name=rank_name_, clades=children_);
+    if taxid!=1:
+        this_node_.taxonomy=Taxonomy(scientific_name=tree_dict[taxid]['rank_name'], rank=rank_, id=Id(taxid, provider='ncbi_taxonomy'));
+    return this_node_;
 
-    return Clade(name=rank_name_, node_id=node_id_, clades=children_, taxonomies=tax_data_);
+def newickTreeGenerator():
+    debug('funct newickTreeGenerator', gap_=True);
+    children=newickTreeGeneratorRecurse(taxid=1);
+    return Tree(name='gi2tax - Common tree', root= children);
 
+def newickTreeGeneratorRecurse(taxid=1):
+    children_=[];
+
+    for child_ in tree_dict[taxid]['children']:
+        children_.append(newickTreeGeneratorRecurse(child_));
+
+    if len(children_)==1:
+        return children_[0];
+    else:
+        if taxid == 1:
+            rank_name_=None; 
+        else:
+            if len(children_)==0:
+                children_=None;
+            if 'gi' in tree_dict[taxid]:
+                rank_name_='{}|gi|{}'.format(tree_dict[taxid]['rank_name'], tree_dict[taxid]['gi']);
+            else:
+                rank_name_=tree_dict[taxid]['rank_name']
+
+            # Remove newick illegal characters from name
+            regex=re.compile("[\s,]+"); # One or more whitespace characters
+            rank_name_= re.sub(regex, '_', rank_name_);
+            rank_name_.replace('(', '[');
+            rank_name_.replace(')', ']');
+
+        this_node_ = Clade2(name=rank_name_, clades=children_);
+        return this_node_;
 
 ###Code
 
@@ -855,7 +878,7 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
     archive_files={};
     if update or ((not os.path.isfile(os.path.join(db_path, 'ncbi_tax.db')) or update_db) and ('names.dmp' not in db_path_files or 'nodes.dmp' not in db_path_files)  and 'taxdmp.zip' not in db_path_files):
         if not quiet:
-            print('\n#####  Updating archives  #####');
+            print('\n#########  Updating archives   #########');
         archive_files=updateArchives();
         debug("Updated Archives: {}".format(archive_files))
 
@@ -900,9 +923,12 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
             if output_path == sys.stdout or output_path == '-':
                 out_tab_file=sys.stdout;
             else:
-                out_tab_file=open(os.path.splitext(output_path)[0], 'w');
+                out_tab_file=open('{}.tab'.format(os.path.splitext(output_path)[0]), 'w');
             column_headings_=['gi', 'taxid', 'subspecies','species','subgenus','genus','subfamily','family','superfamily','suborder','order','superorder','subclass','class','superclass','subphylum','phylum','superphylum','subkingdom','kingdom','superkingdom','no_rank'];
             out_tab_file.write('{}\n'.format('\t'.join(column_headings_)));
+
+        if not quiet:
+            print('\n##### Finding Taxonomic information ####')
 
         if (db_type == 'protein' or db_type == 'both') and (not os.path.isfile(os.path.join(db_path, 'gi_taxid_prot.index')) or reindex):
             gis=giTaxidContainer('gi_taxid_prot.dmp', archive_files, gis, index_=True);
@@ -913,54 +939,83 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
         elif db_type == 'nucleotide' or db_type == 'both':
             gis=giTaxidContainer('gi_taxid_nucl.dmp', archive_files, gis, index_=False);
 
+        if not quiet:
+            print('\nCompleted finding taxonomic information.');
         if len(gis) != 0:
             if not quiet:
-                print('Could not find taxonomic information for gis: \n\t{}'.format(gis));
+                print('Could not find taxonomic information for gis:');
+                gi_list=list(gis);
+                i=0;
+                j=1;
+                sys.stdout.write('\t');
+                while i<len(gi_list):
+                    sys.stdout.write('{} '.format(gi_list[i]));
+                    if j == 3:
+                        sys.stdout.write('\n\t');
+                        j=1;
+                    else:   j+=1;
+                    i+=1;
+                sys.stdout.write('\n');
 
-        if 'newick' in output_format or 'phyloXML' in output_format:
-            common_tree=treeGenerator();
+        if 'newick' in output_format:
+            newick_common_tree=newickTreeGenerator();
+        if 'phyloXML' in output_format:
+            phyloxml_common_tree=phyloxmlTreeGenerator();
 
     except:
-        debug('Error in finding taxonomic path and writing files.')
+        debug('Error in finding taxonomic path and writing files.');
         debug(sys.exc_info());
         if debug:
             raise;
 
     finally:
+        if not quiet:
+            print('\n######  Writing Selected Output   ######');
         if 'tab' in output_format:
             if isinstance(out_tab_file, file) and out_tab_file != sys.stdout:
                 out_tab_file.close();
+            if not quiet:   print('\tFinished writing tab file');
         if 'SQLite' in output_format:
             output_connection.commit();
             output_connection.close();
+            if not quiet:   print('\tFinished writing SQLite database');
         if 'pickle' in output_format:
             if output_path == '-' or output_path == sys.stdout:
                 with open('gi2tax_output.pickle', 'w') as outfile_:
                     pickle.dump(output_dict, outfile_, protocol=2); # Write the updated versions dict to the Versions file. NB i'm using protocol 2 for backwards compatibilty with python 2.*
+                if not quiet:   print('\tFinished writing pickle file to: gi2tax_output.pickle');
             else:
                 with open('{}.pickle'.format(os.path.splitext(output_path)[0]), 'w') as outfile_:
                     pickle.dump(output_dict, outfile_, protocol=2); # Write the updated versions dict to the Versions file. NB i'm using protocol 2 for backwards compatibilty with python 2.*
+                if not quiet:   print('\tFinished writing pickle file to: {}'.format('{}.pickle'.format(os.path.splitext(output_path)[0])));
         if 'json' in output_format:
             if output_path == '-' or output_path == sys.stdout:
                 with open('gi2tax_output.json', 'w') as outfile_:
                     json.dump(output_dict, outfile_);
+                if not quiet:   print('\tFinished writing json file to: gi2tax_output.json');
             else:
                 with open('{}.json'.format(os.path.splitext(output_path)[0]), 'w') as outfile_:
                     json.dump(output_dict, outfile_);
+                if not quiet:   print('\tFinished writing json file to: {}'.format('{}.json'.format(os.path.splitext(output_path)[0])));
         if 'newick' in output_format:
             if output_path == '-' or output_path == sys.stdout:
-                Phylo.write([common_tree], sys.stdout, 'newick')
+                Phylo.write(newick_common_tree, sys.stdout, 'newick');
+                if not quiet:   print('\tFinished writing newick file to: stdout');
             else:
                 with open('{}.nwk'.format(os.path.splitext(output_path)[0]), 'w') as outfile_:
-                    Phylo.write([common_tree], outfile_, 'newick')
+                    Phylo.write(newick_common_tree, outfile_, 'newick');
+            if not quiet:   print('\tFinished writing newick file to: {}'.format('{}.nwk'.format(os.path.splitext(output_path)[0])));
         if 'phyloXML' in output_format:
             if output_path == '-' or output_path == sys.stdout:
-                Phylo.write([common_tree], sys.stdout, 'phyloxml')
+                Phylo.write(phyloxml_common_tree, sys.stdout, 'phyloxml');
+                if not quiet:   print('\tFinished writing phyloXML file to: stdout');
             else:
                 with open('{}.xml'.format(os.path.splitext(output_path)[0]), 'w') as outfile_:
-                    Phylo.write([common_tree], outfile_, 'phyloxml')
+                    Phylo.write(phyloxml_common_tree, outfile_, 'phyloxml');
+                if not quiet:   print('\tFinished writing phyloXML file to: {}'.format('{}.xml'.format(os.path.splitext(output_path)[0])));
+
         if not quiet:
-            print('####################### End gi2tax #######################\n');
+            print('\n####################### End gi2tax #######################\n');
 
 if __name__== '__main__':
     ###Argument Handling
