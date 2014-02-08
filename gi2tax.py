@@ -39,7 +39,7 @@ from Bio import SeqIO, Phylo;
 from Bio.Blast import NCBIXML; #for generic xml handling
 from Bio.Phylo.PhyloXML import Phylogeny, Clade, Taxonomy, Id;
 from Bio.Phylo.BaseTree import Tree;
-from Bio.Phylo.BaseTree import Clade as Clade2
+from Bio.Phylo.BaseTree import Clade as Clade2;
 
 
 
@@ -689,8 +689,7 @@ def output_handler(record_):
          values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, rowWriter(row_, 'SQLite'));
 
-    if 'pickle' in output_format or 'json' in output_format:
-        output_dict[record_['gi']] = row_;
+    output_dict[record_['gi']] = row_;
 
     if 'tab' in output_format:
         out_tab_file.write(rowWriter(row_, 'tab'));
@@ -778,13 +777,12 @@ def phyloxmlTreeGeneratorRecurse(taxid=1):
         else:
             rank_=None;
         
-        if 'gi' in tree_dict[taxid]:
-            rank_name_='gi|{}'.format(tree_dict[taxid]['gi']);
-            node_id_=tree_dict[taxid]['gi'];
+        if children_==None:
+            rank_name_=tree_dict[taxid]['rank_name'];
         else:
             rank_name_=None;
             node_id_=taxid;
-    this_node_ = Clade(name=rank_name_, clades=children_);
+    this_node_ = Clade(name=rank_name_, clades=children_, branch_length=0.1);
     if taxid!=1:
         this_node_.taxonomy=Taxonomy(scientific_name=tree_dict[taxid]['rank_name'], rank=rank_, id=Id(taxid, provider='ncbi_taxonomy'));
     return this_node_;
@@ -808,23 +806,23 @@ def newickTreeGeneratorRecurse(taxid=1):
         else:
             if len(children_)==0:
                 children_=None;
-            if 'gi' in tree_dict[taxid]:
-                rank_name_='{}|gi|{}'.format(tree_dict[taxid]['rank_name'], tree_dict[taxid]['gi']);
+                rank_name_=str(tree_dict[taxid]['rank_name'])
+                # Remove newick illegal characters from name
+                regex=re.compile("[\s,]+"); # One or more whitespace characters
+                rank_name_= re.sub(regex, '_', rank_name_);
+                rank_name_.replace('(', '[');
+                rank_name_.replace(')', ']');
             else:
-                rank_name_=tree_dict[taxid]['rank_name']
+                rank_name_=None;
 
-            # Remove newick illegal characters from name
-            regex=re.compile("[\s,]+"); # One or more whitespace characters
-            rank_name_= re.sub(regex, '_', rank_name_);
-            rank_name_.replace('(', '[');
-            rank_name_.replace(')', ']');
 
-        this_node_ = Clade2(name=rank_name_, clades=children_);
+        this_node_ = Clade2(name=rank_name_, clades=children_, branch_length=0.1);
         return this_node_;
+
 
 ###Code
 
-def main(input_path, input_format, output_path, output_format, db_path='./tax_db', db_type='both', update=False, update_db=False, reindex=False, quiet=False):
+def main(input_path, input_format, output_path, output_format, db_path='./tax_db', db_type='both', update=False, update_db=False, reindex=False, input_self_path=None,quiet=False):
     ### Setup taxonomic db
     ## Check if files are in local directory or are up to date if not > download them
 
@@ -833,12 +831,12 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
     if input_path == '-' or input_path == sys.stdin:
         input_path=sys.stdin;
 
-
     if not quiet:
         print('####################### Begin gi2tax #######################\n');
         print('Using parameters...');
         print('\tinput path: {}'.format(input_path));
         print('\tinput format: {}'.format(input_format));
+        print('\ttaxid input path: {}'.format(input_self_path));
         print('\toutput path: {}'.format(output_path));
         print('\toutput format: {}'.format(' '.join(output_format)));
         print('\tdatabase path: {}'.format(db_path));
@@ -846,7 +844,9 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
         elif db_type=='nucleotide': type_='nucleotide gi\'s';
         else:   type_='protein and nucleotide gi\'s';
         print('\tdatabase contains: {}'.format(type_));
-        print('\tupdate: {}'.format(str(update)));
+        print('\treindexing gi_taxid file(s): {}'.format(str(reindex)));
+        print('\tupdate archives: {}'.format(str(update)));
+        print('\tupdate database: {}'.format(str(update_db)));
 
     if not os.path.isdir(db_path):
         os.makedirs(db_path);
@@ -898,6 +898,12 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
         debug("Updated Archives: {}".format(archive_files));
 
     try:
+
+        global output_dict;
+        output_dict={};
+
+
+
         if 'newick' in output_format or 'phyloXML' in output_format:
             global tree_dict;
             tree_dict={};
@@ -914,10 +920,6 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
                 create table taxonomy
                 (gi integer primary key, taxid integer, subspecies text, species text, subgenus text, genus text, subfamily text, family text, superfamily text, suborder text, order_ text, superorder text, subclass text, class text, superclass text, subphylum text, phylum text, superphylum text, subkingdom text, kingdom text, superkingdom text, no_rank text)
             ''');
-
-        if 'pickle' in output_format or 'json' in output_format:
-            global output_dict;
-            output_dict={};
         if 'tab' in output_format:
             global out_tab_file;
             if output_path == sys.stdout or output_path == '-':
@@ -965,6 +967,7 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
     except:
         debug('Error in finding taxonomic path and writing files.');
         debug(sys.exc_info());
+        raise
         if debug:
             raise;
 
@@ -1020,8 +1023,9 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
 if __name__== '__main__':
     ###Argument Handling
     arg_parser=argparse.ArgumentParser(description='description');
-    arg_parser.add_argument("-f", '--input_path', default=None, help="Path to input file(s) or directory, enter '-' for stdin (default). You may indicate multiple files/directories or combinations by separating with a space eg. -f one.faa two/ etc.");
+    arg_parser.add_argument("-f", '--input_path', default=None, help="Path to input file containing gi's, enter '-' for stdin (default).");
     arg_parser.add_argument("-g", '--input_format', default="regex", help="The format of the files that you are finding gi's from. Default = Use a regular expression pattern", choices=['regex', 'blastXML', 'plain', 'fasta', 'clustal']);    
+    arg_parser.add_argument("-i", '--input_self_path', default=None, help="Path to tab file containing additional taxids to include. Default is to not include additional taxids. See readme for instructions on how to format the tab file.");    
     arg_parser.add_argument("-o", '--output_path', default=None, help="Path to output file, enter '-' for stdout. Default for tab output is stdout. Default for sqlite, json, and pickle creates an 'gi2tax_output.*' file in working direcory.");
     arg_parser.add_argument("-p", '--output_format', nargs='*',default=["tab"], help="Format(s) to output the taxonomic information. You may specify multiple output formats by separating with a space. Default = tab delimited file.", choices=['tab', 'pickle', 'json', 'newick', 'phyloXML', 'SQLite']);
     arg_parser.add_argument("-d", '--db_path', default="./tax_db/", help="Path to SQLite taxonomic db (this should be a directory/folder). If no db exists at path one will be created. Default= ./tax_db/");
@@ -1034,6 +1038,7 @@ if __name__== '__main__':
     args = arg_parser.parse_args();
 
     input_path=args.input_path;
+    input_self_path=args.input_self_path;
     output_path=args.output_path;
     input_format=args.input_format;
     output_format=args.output_format;
@@ -1054,4 +1059,4 @@ if __name__== '__main__':
         def debug(string, gap_=False):
             pass;
 
-    main(input_path, input_format, output_path, output_format, db_path, db_type, update, update_db, reindex,quiet);
+    main(input_path, input_format, output_path, output_format, db_path, db_type, update, update_db, reindex, input_self_path, quiet);
