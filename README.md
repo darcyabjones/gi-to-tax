@@ -111,7 +111,7 @@ The purpose of including your own taxids is intended to be used for sequences th
 
 Example tab file (Where spaces between values are tabs):
 
-	id taxid gi
+	id	taxid	gi
 	gene1	3702	.
 	gi|20338420|gb|AY093582.1|	192845	20338420
 	.	3702	17529069
