@@ -1,6 +1,6 @@
 #!/usr/local/bin/env python
 
-#Version 1. Darcy Jones, January 2014.
+#Version 1.0.0. Darcy Jones, January 2014.
 #Contact Darcy Jones, darcy.ab.jones@gmail.com
 
     #----------------------------------- LICENSE ---------------------------------------#
@@ -818,7 +818,7 @@ def phyloxmlTreeGeneratorRecurse(taxid=1):
             rank_=None;
         
         if children_==None:
-            rank_name_=tree_dict[taxid]['rank_name'];
+            rank_name_=taxid;
         else:
             rank_name_=None;
             node_id_=taxid;
@@ -846,7 +846,8 @@ def newickTreeGeneratorRecurse(taxid=1):
         else:
             if len(children_)==0:
                 children_=None;
-                rank_name_=str(tree_dict[taxid]['rank_name'])
+                rank_name_=str(tree_dict[taxid]['rank_name']);
+                #rank_name_=str(taxid); #might be more useful?      
                 # Remove newick illegal characters from name
                 regex=re.compile("[\s,]+"); # One or more whitespace characters
                 rank_name_= re.sub(regex, '_', rank_name_);
@@ -906,8 +907,9 @@ def tiFinder(input_self_path_, gis_):
                                 output_dict[line_dict_['gi']]=line_dict_;
                                 gis_.discard(line_dict_['gi'])
                         else:
-                            tis_[line_dict_['id']]=line_dict_['taxid'];
-                            output_dict[line_dict_['id']]=line_dict_;
+                            if 'id' in line_dict_:
+                                tis_[line_dict_['id']]=line_dict_['taxid'];
+                                output_dict[line_dict_['id']]=line_dict_;
     else:
         if not quiet:
             print('The specified input_self_path: {} could not be opened'.format(input_self_path_));
@@ -1265,8 +1267,8 @@ if __name__== '__main__':
     arg_parser.add_argument("-u", '--update', default=False, action='store_true', help="Boolean toggle. Option to update both the archives and the taxonomic db.");
     arg_parser.add_argument("-v", '--update_db', default=False, action='store_true', help="Boolean toggle. Option to update the sqlite taxonomic db.");
     arg_parser.add_argument("-r", '--reindex', default=False, action='store_true', help="Boolean toggle. Option to update the gi_taxid file index system.");
+    arg_parser.add_argument('-e', '--email', default=None, help='Stores an email address to search for gis not found in the gi_taxid files with ncbi entrez query system.');
     arg_parser.add_argument("-q", '--quiet', default=False, action='store_true', help="Boolean toggle. Suppress running feedback. ");
-    arg_parser.add_argument('-e', '--email', default=None, help='Stores an email address to search for gis not found in the gi_taxid files with ncbi entrez query syste,.');
     arg_parser.add_argument('--debug', default=False, action='store_true', help="Boolean toggle. Option to give extensive running feedback to monitor the programs\' progression");
     args = arg_parser.parse_args();
 
