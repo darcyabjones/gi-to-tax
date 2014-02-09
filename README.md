@@ -109,11 +109,11 @@ Optional columns might include: code, gi, name, description etc. Where possible 
 
 The purpose of including your own taxids is intended to be used for sequences that do not have a gi but that you still want to include in the output. However, one might use it to avoid having to make entrez queries by including outdated gis with their corresponding taxid or you might just provide the tab output of a previous gi2tax search as user specified taxids in which case the taxids for gis provided may not have to found again. In the latter case, the difference in speed is minimal between searching an indexed gi_taxid file and using the taxid from a user specified tab file, but it might be useful for combining the output of two searched.
 
-Example tab file:
+Example tab file (Where spaces between values are tabs):
 
-	id taxid gi\n
-	gene1 3702  .\n
-	gi|20338420|gb|AY093582.1|  192845  20338420\n
-	. 3702  17529069\n
+	id taxid gi
+	gene1	3702	.
+	gi|20338420|gb|AY093582.1|	192845	20338420
+	.	3702	17529069
 
 The first line contains column headings. For the first record (second line) gi2tax will use gene1 as the unique id and find taxonomic information corresponding to taxid 3702 (Arabidopsis thaliana). The second record contains both an id and a gi, gi2tax will use the gi as the unique identifier and find taxonomic information for taxid 192845 (Erucastrum strigosum). While the third record is missing an id, because it has a value for gi this record is still valid and gi2taxid will use gi as the unique identifier and find taxonomic information for taxid 3702.
