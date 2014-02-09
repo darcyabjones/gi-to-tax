@@ -35,11 +35,13 @@ import calendar;
 import sqlite3;
 import zipfile;
 import re;
-from Bio import SeqIO, Phylo;
-from Bio.Blast import NCBIXML; #for generic xml handling
+import random;
+from Bio import SeqIO, Phylo, Entrez;
+from Bio.Blast import NCBIXML;
 from Bio.Phylo.PhyloXML import Phylogeny, Clade, Taxonomy, Id;
 from Bio.Phylo.BaseTree import Tree;
 from Bio.Phylo.BaseTree import Clade as Clade2;
+
 
 
 
@@ -438,28 +440,36 @@ def giFinder(input_path_, input_format_):
     # Out > set of gi's
     gis_=set();
     if input_path_ == None:
-        return {}
+        return set();
     try:
         if input_path_ == sys.stdin or input_path_ == '-':
             in_file_ = sys.stdin;
         else:
-            in_file_ = open(input_path_, 'rU');
-
+            try:
+                in_file_ = open(input_path_, 'rU');
+            except:
+                sys.stderr.write('Quitting with error, {} could not be opened.'.format(input_path_));
+                sys.exit();
         if input_format_ == 'regex':
             regex=re.compile('gi[\|\_]?[\s]*(\d+)', re.I); # matches gi|[any amount of white space][numbers], gi_[any amount of white space][numbers], gi[any amount of white space][numbers],  gi_[numbers][any amount of white space], gi[any amount of white space][numbers]. (Case insensitive)
             gis_=set(regex.findall(in_file_.read()));
+            for gi_ in gis_:
+                output_dict[int(gi_)]={'gi':int(gi_), 'code':codeGenerator()};
         elif input_format_ == 'blastXML':
             gis_= getGisFromXML(in_file_);
         elif input_format_ == 'plain':
             regex=re.compile("(\d+)"); # Matches any set of numbers
             gis_=set(regex.findall(in_file_.read()));
+            for gi_ in gis_:
+                output_dict[int(gi_)]={'gi':int(gi_), 'code':codeGenerator()};
         elif input_format_ in {'fasta', 'clustal', 'genbank'}:
             sequences_=SeqIO.parse(in_file_, input_format_);
             regex=re.compile('gi[\|\_]?[\s]*(\d+)', re.I); # matches gi|[any amount of white space][numbers], gi_[any amount of white space][numbers], gi[any amount of white space][numbers],  gi_[numbers][any amount of white space], gi[any amount of white space][numbers]. (Case insensitive)
             for seq_ in sequences_:
-                gis_|=set(regex.findall(seq_.id));
-                # gis_|=set(regex.findall(seq_.name); # Maybe later
-                # gis_|=set(regex.findall(seq_.description);
+                gi_=regex.findall(seq_.id);
+                if len(gi_) != 0:
+                    gis_|=gi_;
+                    output_dict[int(gi_[0])]={'gi':int(gi_[0]), 'code':codeGenerator(), 'id':seq_.id, 'name':seq_.name, 'description':seq_.description};
     except:
         debug(sys.exc_info());
         raise;
@@ -469,7 +479,7 @@ def giFinder(input_path_, input_format_):
 
     if len(gis_) == 0:
         debug("No gi\'s found in {} using {} search method. Try again.".format(input_path_, input_format_));
-        gis_={};
+        gis_=set();
 
     return {int(gi) for gi in gis_};
 
@@ -480,12 +490,12 @@ def getGisFromXML(in_file_):
         gi_=gi_extract(blast_query_.query)
         if len(gi_) != 0:
             gis_|=set(gi_);
+            output_dict[int(gi_[0])]={'gi':int(gi_[0]), 'code':codeGenerator(), 'id':blast_query_.query};
         for alignment_ in blast_query_.alignments:    
-            for hsp_ in alignment_.hsps:
-                gi_ = gi_extract(str(alignment_.title));
-                #hit_evalue = float(hsp.expect);
-                if len(gi_)!=0:
-                    gis_|=set(gi_);
+            gi_ = gi_extract(str(alignment_.hit_id));
+            if len(gi_)!=0:
+                gis_|=set(gi_);
+                output_dict[int(gi_[0])]={'gi':int(gi_[0]), 'code':codeGenerator(), 'id':alignment_.hit_id, 'description':alignment_.hit_def}
     return gis_;
 
 def gi_extract(gi_string): #takes string object, returns gid
@@ -493,6 +503,13 @@ def gi_extract(gi_string): #takes string object, returns gid
     hit_id = regex.findall(gi_string.strip());
     #if len(hit_id)!=0: #handles the event that the query has no gid, ie it may be an unpublished sequence.
     return hit_id;
+
+def codeGenerator(length=9, chars='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'):
+    code= ''.join(random.choice(chars) for x in range(length));
+    if code in seen_code_set:
+    #   If we've already used the code for a different sequence run the generator again.
+        codeGenerator(length, seen_code_set);
+    return code;
 
 
 def giTaxidContainer(gi_ti_file_, archive_files_, gis_, index_=False):
@@ -513,7 +530,8 @@ def giTaxidContainer(gi_ti_file_, archive_files_, gis_, index_=False):
             raise;
     finally:
         extracted_file_.close();
-        debug("Closed {}".format(gi_ti_file_))
+        connection_.close();
+        debug("Closed {}".format(gi_ti_file_));
     return gis_;
 
 def indexGiTaxidFile(cursor_, extracted_file_, gi_ti_file_, gis_):
@@ -625,7 +643,7 @@ def giTaxidFile(cursor_, extracted_file_, gi_ti_file_, gis_):
                             gis_.discard(gi_);
                             gi_block_.discard(gi_);
                             if not quiet:
-                                sys.stdout.write("\033[1A\033[K"); # Moves two lines up, and clears to the end of the line.
+                                sys.stdout.write("\033[1A\033[K"); # Moves one lines up, and clears to the end of the line.
                                 print('\tFound {} of {} gi\'s'.format(found_count_, len_gis_));
                             if len_gi_taxid_index_+len_new_gi_taxid_index_ < max_len_gi_taxid_index_ and gi_ != lower_bound_gi_: # Adds index for found gis, if not already in the list. impoves researching same gis Looking for best way to add this.
                                 new_gi_taxid_index_.append((gi_, last_position)); # Stores end of line for previous gi. (beginning of line for this one).
@@ -680,19 +698,31 @@ def output_handler(record_):
     if 'newick' in output_format or 'phyloXML' in output_format:
         treeFormatHandler(record_);
 
-    if 'SQLite' in output_format or 'pickle' in output_format or 'json' in output_format or 'tab' in output_format:
-        row_=columnFormatHandler(record_);
+    dict_key_='';
+    row_=columnFormatHandler(record_);
+    if 'gi' in record_:
+        dict_key_='gi';
+        if record_['gi'] in output_dict:
+            for key in row_:
+                if key not in output_dict[record_['gi']]:
+                    output_dict[record_['gi']][key]=row_[key];
+        else:
+            output_dict[record_['gi']] = row_;
+    else:
+        dict_key_='id';
+        if record_['id'] in output_dict:
+            for key in row_:
+                if key not in output_dict[record_['id']]:
+                    output_dict[record_['id']][key]=row_[key];
 
     if 'SQLite' in output_format:
         output_cursor.execute("""
-        insert into taxonomy(gi,taxid,subspecies,species,subgenus,genus,subfamily,family,superfamily,suborder,order_,superorder,subclass,class,superclass,subphylum,phylum,superphylum,subkingdom,kingdom,superkingdom,no_rank)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, rowWriter(row_, 'SQLite'));
-
-    output_dict[record_['gi']] = row_;
+        insert into taxonomy(code, gi, id, name, taxid, description, subspecies,species,subgenus,genus,subfamily,family,superfamily,suborder,order_,superorder,subclass,class,superclass,subphylum,phylum,superphylum,subkingdom,kingdom,superkingdom,no_rank)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, rowWriter(output_dict[record_[dict_key_]], 'SQLite'));
 
     if 'tab' in output_format:
-        out_tab_file.write(rowWriter(row_, 'tab'));
+        out_tab_file.write(rowWriter(output_dict[record_[dict_key_]], 'tab'));
 
 def treeFormatHandler(record_):
     debug('funct treeFormatHandler', gap_=True);
@@ -710,14 +740,22 @@ def treeFormatHandler(record_):
             tree_dict[node_['parent_taxid']]['children'].add(node_['taxid']);
         else:
             tree_dict[node_['parent_taxid']]={'children':{node_['taxid']}};
-    if record_['taxid'] in tree_dict:
-        tree_dict[record_['taxid']]['gi']=record_['gi'];
+    if 'gi' in record_:
+        if record_['taxid'] in tree_dict:
+            tree_dict[record_['taxid']]['gi']=record_['gi'];
+        else:
+            tree_dict[record_['taxid']]={'gi':record_['gi']};
     else:
-        tree_dict[record_['taxid']]={'gi':record_['gi']};
+        if record_['taxid'] in tree_dict:
+            tree_dict[record_['taxid']]['id']=record_['id'];
+        else:
+            tree_dict[record_['taxid']]={'id':record_['id']};
 
 def columnFormatHandler(record_):
     debug('funct columnFormatHandler')
-    row_={'gi':record_['gi'], 'taxid':record_['taxid']};
+    row_={'taxid':record_['taxid']};
+    if 'gi' in record_:
+        row_['gi']=record_['gi'],  
     no_rank=[];
     for node_ in record_['tax_path']:
         rank=node_['rank'];
@@ -733,23 +771,25 @@ def columnFormatHandler(record_):
 def rowWriter(row_, type_):
     debug('funct rowWriter');
     debug(row_);
-    if type_=='tab':
-        out_row_=[str(row_['gi']), str(row_['taxid'])];
-    else:
-        out_row_=[row_['gi'], row_['taxid']];
-    column_headings_=['subspecies','species','subgenus','genus','subfamily','family','superfamily','suborder','order','superorder','subclass','class','superclass','subphylum','phylum','superphylum','subkingdom','kingdom','superkingdom','no_rank'];
+    out_row_=[];
+    column_headings_=['code', 'gi', 'id', 'name', 'taxid','description','subspecies','species','subgenus','genus','subfamily','family','superfamily','suborder','order','superorder','subclass','class','superclass','subphylum','phylum','superphylum','subkingdom','kingdom','superkingdom','no_rank'];
 
     for rank_ in column_headings_:
         if rank_ in row_:
-            out_row_.append(row_[rank_]);
+            if (rank_ == 'gi' or rank_ == 'taxid') and type_=='tab':
+                out_row_.append(str(row_[rank_]));
+            else:
+                out_row_.append(row_[rank_]);
         else:
-            out_row_.append('.');
+            if rank_ == 'gi' and type_=='SQLite':
+                out_row_.append(-1);
+            else:
+                out_row_.append('.');
 
     if type_ == 'SQLite':
         return tuple(out_row_);
     elif type_ == 'tab':
         return '{}\n'.format('\t'.join(out_row_));
-
 
 def phyloxmlTreeGenerator():
     debug('funct phyloxmlTreeGenerator', gap_=True);
@@ -820,13 +860,153 @@ def newickTreeGeneratorRecurse(taxid=1):
         return this_node_;
 
 
+def tiFinder(input_self_path_, gis_):
+    debug('funct tiFinder')
+    tis_=dict()
+    if os.path.isfile(input_self_path_):
+        with open(input_self_path_, 'rU') as infile_:
+            firstline_=True;
+            for line_ in infile_:
+                if firstline_:
+                    keys_=line_.rstrip('\n').split('\t');
+                    if 'id' not in keys_:
+                        if not quiet:
+                            print('invalid input_self_path, Does not contain id');
+                        break;
+                    if 'taxid' not in keys_:
+                        if not quiet:
+                            print('invalid input_self_path, Does not contain taxid');
+                        break;
+                    firstline_=False;
+                else:
+                    line_list_=line_.rstrip('\n').split('\t');
+                    line_dict_={'code':codeGenerator()};
+                    i=0;
+                    while i< len(line_list_) and i<len(keys_):
+                        if line_list_[i] != '.' or line_list_[i] != ' ' or line_list_[i] != '':
+                            if keys_[i] == 'taxid' or keys_[i] == 'gi':
+                                if isint(line_list_[i]):
+                                    line_dict_[keys_[i]]=int(line_list_[i]);
+                            else:
+                                line_dict_[keys_[i]]=line_list_[i];
+                        i+=1;
+                    if 'code' not in line_dict_:
+                        line_dict_['code']=codeGenerator()
+                    if 'taxid' in line_dict_:
+                        if 'gi' in line_dict_:
+                            if line_dict_['gi'] in output_dict:
+                                for key_ in line_dict_:
+                                    if key_ not in output_dict[line_dict_['gi']]:
+                                        output_dict[line_dict_['gi']][key_] = line_dict_[key_];
+                                    elif output_dict[line_dict_['gi']][key_] == '.' or output_dict[line_dict_['gi']][key_] == '' or output_dict[line_dict_['gi']][key_] == ' ':  
+                                        output_dict[line_dict_['gi']][key_] = line_dict_[key_];
+                                    gis_.discard(line_dict_['gi']);
+                            else:
+                                tis_[line_dict_['gi']]=line_dict_['taxid'];
+                                output_dict[line_dict_['gi']]=line_dict_;
+                                gis_.discard(line_dict_['gi'])
+                        else:
+                            tis_[line_dict_['id']]=line_dict_['taxid'];
+                            output_dict[line_dict_['id']]=line_dict_;
+    else:
+        if not quiet:
+            print('The specified input_self_path: {} could not be opened'.format(input_self_path_));
+    return tis_, gis_;
+
+def isint(s):
+    try:
+        int(s);
+        return True;
+    except ValueError:
+        return False;
+
+def findTiTTaxonomy(tis_):
+    debug('funct findTiTTaxonomy')
+    success_=True;
+    try:
+        connection_= sqlite3.connect(os.path.join(db_path, 'ncbi_tax.db'));
+        connection_.row_factory = sqlite3.Row;
+        cursor_= connection_.cursor();
+        for id_ in tis_:
+            ti_ = tis_[id_];
+            ti_dict_={'id':id_, 'taxid': ti_, 'tax_path':[]};
+            ti_dict_['tax_path'] = findTaxPath(cursor_, ti_, ti_dict_['tax_path']);
+            output_handler(ti_dict_);
+    except:
+        success_=False;
+        debug('There was an error in finding info for tis')
+        debug(sys.exc_info())
+        if debug:
+            raise;
+    finally:
+        connection_.close();
+
+    return success_;
+
+
+def entrezSearch(gis_):
+    debug('funct entrezSearch')
+    tis_=dict();
+    delete_set_=set();
+    len_gis_=len(gis_);
+    outdated_=set();
+    found_count_=0;
+    if not quiet:
+        print('\tFound 0 of {} remaining gis with entrez'.format(len_gis_))
+    if db_type=='nucleotide' or db_type=='both':
+        for gi_ in gis_:
+            try:
+                entrez_record_=Entrez.read(Entrez.esummary(db='nucleotide', id=str(gi_))); # Raises error if the gi wasn't found in the db
+                if 'TaxId' in entrez_record_[0]:
+                    if 'Status' in entrez_record_[0]:
+                        if entrez_record_[0]['Status'].lower() != 'current'  or entrez_record_[0]['Status'].lower() != 'live':
+                            outdated_.add(gi_);
+                    if gi_ in output_dict:
+                        output_dict[gi_]['taxid']=entrez_record_[0]['TaxId'];
+                    else:
+                        output_dict[gi_]={'taxid':entrez_record_[0]['TaxId'], 'gi':gi_};
+                    tis_[gi_]=entrez_record_[0]['TaxId'];
+                    found_count_+=1;
+                    if not quiet:
+                        sys.stdout.write("\033[1A\033[K"); # Moves one lines up, and clears to the end of the line.
+                        print('\tFound {} of {} remaining gis with entrez'.format(found_count_, len_gis_));
+                    delete_set_.add(gi_);
+            except:
+                debug(sys.exc_info())
+                debug('gi|{} not found in nucleotide database'.format(gi_));
+    for gi_ in delete_set_:
+        gis_.discard(gi_);
+    if db_type=='protein' or db_type=='both':
+        for gi_ in gis_:
+            try:
+                entrez_record_=Entrez.read(Entrez.esummary(db='protein', id=str(gi_))); # Raises error if the gi wasn't found in the db
+                if 'TaxId' in entrez_record_[0]:
+                    if 'Status' in entrez_record_[0]:
+                        if entrez_record_[0]['Status'].lower() != 'current' or entrez_record_[0]['Status'].lower() != 'live':
+                            outdated_.add(gi_);
+                    if gi_ in output_dict:
+                        output_dict[gi_]['taxid']=entrez_record_[0]['TaxId'];
+                    else:
+                        output_dict[gi_]={'taxid':entrez_record_[0]['TaxId'], 'gi':gi_};
+                    tis_[gi_]=entrez_record_[0]['TaxId'];
+                    found_count_+=1;
+                    if not quiet:
+                        sys.stdout.write("\033[1A\033[K"); # Moves one lines up, and clears to the end of the line.
+                        print('\tFound {} of {} remaining gis with entrez'.format(found_count_, len_gis_));
+                    delete_set_.add(gi_)
+            except:
+                debug('gi|{} not found in protein database'.format(gi_));
+    for gi_ in delete_set_:
+        gis_.discard(gi_);
+    return tis_, gis_, outdated_;
+
 ###Code
 
-def main(input_path, input_format, output_path, output_format, db_path='./tax_db', db_type='both', update=False, update_db=False, reindex=False, input_self_path=None,quiet=False):
+def main(input_path, input_format, output_path, output_format, db_path='./tax_db', db_type='both', update=False, update_db=False, reindex=False, input_self_path=None, email=None, quiet=False):
     ### Setup taxonomic db
     ## Check if files are in local directory or are up to date if not > download them
 
-    if output_path == '-' or output_path == sys.stdout:
+    if output_path == '-' or output_path == sys.stdout or output_path == None:
         quiet=True;
     if input_path == '-' or input_path == sys.stdin:
         input_path=sys.stdin;
@@ -889,8 +1069,16 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
             debug("Updated Archives: {}".format(archive_files));
         success=updateDB(archive_files);
 
+    global output_dict, seen_code_set;
+    output_dict={};
+    seen_code_set=set();
+
     gis=giFinder(input_path, input_format)
     debug('Found gi\'s: {}'.format(gis));
+    if input_self_path != None:
+        tis, gis=tiFinder(input_self_path, gis);
+        debug("Found taxids: {}".format(tis))
+
 
     if len(archive_files) < len(req_files):
         db_path_files = findDbPathContents();
@@ -898,12 +1086,6 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
         debug("Updated Archives: {}".format(archive_files));
 
     try:
-
-        global output_dict;
-        output_dict={};
-
-
-
         if 'newick' in output_format or 'phyloXML' in output_format:
             global tree_dict;
             tree_dict={};
@@ -918,15 +1100,15 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
             output_cursor.execute("drop table if exists taxonomy"); #  if the table is already in the database, ie if we are updating the database, delete the previous table.
             output_cursor.execute('''
                 create table taxonomy
-                (gi integer primary key, taxid integer, subspecies text, species text, subgenus text, genus text, subfamily text, family text, superfamily text, suborder text, order_ text, superorder text, subclass text, class text, superclass text, subphylum text, phylum text, superphylum text, subkingdom text, kingdom text, superkingdom text, no_rank text)
+                (code text not null, gi integer primary key, id text, name text, taxid integer, description text, subspecies text, species text, subgenus text, genus text, subfamily text, family text, superfamily text, suborder text, order_ text, superorder text, subclass text, class text, superclass text, subphylum text, phylum text, superphylum text, subkingdom text, kingdom text, superkingdom text, no_rank text)
             ''');
         if 'tab' in output_format:
             global out_tab_file;
-            if output_path == sys.stdout or output_path == '-':
+            if output_path == sys.stdout or output_path == '-' or output_path == None:
                 out_tab_file=sys.stdout;
             else:
                 out_tab_file=open('{}.tab'.format(os.path.splitext(output_path)[0]), 'w');
-            column_headings_=['gi', 'taxid', 'subspecies','species','subgenus','genus','subfamily','family','superfamily','suborder','order','superorder','subclass','class','superclass','subphylum','phylum','superphylum','subkingdom','kingdom','superkingdom','no_rank'];
+            column_headings_=['code', 'gi', 'id', 'name', 'taxid', 'description','subspecies','species','subgenus','genus','subfamily','family','superfamily','suborder','order','superorder','subclass','class','superclass','subphylum','phylum','superphylum','subkingdom','kingdom','superkingdom','no_rank'];
             out_tab_file.write('{}\n'.format('\t'.join(column_headings_)));
 
         if not quiet:
@@ -934,12 +1116,58 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
 
         if (db_type == 'protein' or db_type == 'both') and (not os.path.isfile(os.path.join(db_path, 'gi_taxid_prot.index')) or reindex):
             gis=giTaxidContainer('gi_taxid_prot.dmp', archive_files, gis, index_=True);
-        elif db_type == 'protein' or db_type == 'both':
+        elif (db_type == 'protein' or db_type == 'both') and len(gis) > 0:
             gis=giTaxidContainer('gi_taxid_prot.dmp', archive_files, gis, index_=False);
         if (db_type == 'nucleotide' or db_type == 'both') and (not os.path.isfile(os.path.join(db_path, 'gi_taxid_nucl.index')) or reindex):
             gis=giTaxidContainer('gi_taxid_nucl.dmp', archive_files, gis, index_=True);
-        elif db_type == 'nucleotide' or db_type == 'both':
+        elif (db_type == 'nucleotide' or db_type == 'both') and len(gis) > 0:
             gis=giTaxidContainer('gi_taxid_nucl.dmp', archive_files, gis, index_=False);
+
+        if input_self_path != None:
+            if not quiet:
+                print('Searching for taxonomic information for user supplied taxids...')
+            success=True;
+            if len(tis) >0:
+                success=findTiTTaxonomy(tis);
+            if not quiet and success:
+                sys.stdout.write("\033[1A\033[K"); # Moves one lines up, and clears to the end of the line.
+                print('\nSearching for taxonomic information for user supplied taxids... Done');
+            elif not quiet:
+                sys.stdout.write("\033[1A\033[K"); # Moves one lines up, and clears to the end of the line.
+                print('\nSearching for taxonomic information for user supplied taxids... Completed with error');
+
+        if email != None and len(gis)>0:
+            Entrez.email=email;
+            success=True;
+            if not quiet:
+                print('\nSearching for taxonomic information using entrez query...')
+            tis, gis, outdated = entrezSearch(gis);
+            if len(tis) >0:
+                success=findTiTTaxonomy(tis);
+            if not quiet and success:
+                sys.stdout.write("\033[2A\033[K"); # Moves one lines up, and clears to the end of the line.
+                print('Searching for taxonomic information using entrez query... Done');
+                sys.stdout.write("\033[2B"); # Moves two lines down
+            elif not quiet:
+                sys.stdout.write("\033[2A\033[K"); # Moves two lines up, and clears to the end of the line.
+                print('Searching for taxonomic information using entrez query... Completed with error');
+                sys.stdout.write("\033[2B"); # Moves two lines down
+            if not quiet and len(outdated) > 0:
+                print('The following gis are outdated:');
+                gi_list=list(outdated);
+                i=0;
+                j=1;
+                sys.stdout.write('\t');
+                while i<len(gi_list):
+                    sys.stdout.write('{} '.format(gi_list[i]));
+                    if j == 4:
+                        sys.stdout.write('\n\t');
+                        j=1;
+                    else:   
+                        j+=1;
+                    i+=1;
+                sys.stdout.write('\n');      
+
 
         if not quiet:
             print('\nCompleted finding taxonomic information.');
@@ -952,10 +1180,11 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
                 sys.stdout.write('\t');
                 while i<len(gi_list):
                     sys.stdout.write('{} '.format(gi_list[i]));
-                    if j == 3:
+                    if j == 4:
                         sys.stdout.write('\n\t');
                         j=1;
-                    else:   j+=1;
+                    else:   
+                        j+=1;
                     i+=1;
                 sys.stdout.write('\n');
 
@@ -967,7 +1196,6 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
     except:
         debug('Error in finding taxonomic path and writing files.');
         debug(sys.exc_info());
-        raise
         if debug:
             raise;
 
@@ -979,6 +1207,8 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
                 out_tab_file.close();
             if not quiet:   print('\tFinished writing tab file');
         if 'SQLite' in output_format:
+            output_cursor.execute("create index taxid_index on taxonomy (taxid)");
+            output_cursor.execute("create index code_index on taxonomy (code)")
             output_connection.commit();
             output_connection.close();
             if not quiet:   print('\tFinished writing SQLite database');
@@ -1020,6 +1250,8 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
         if not quiet:
             print('\n####################### End gi2tax #######################\n');
 
+
+
 if __name__== '__main__':
     ###Argument Handling
     arg_parser=argparse.ArgumentParser(description='description');
@@ -1034,6 +1266,7 @@ if __name__== '__main__':
     arg_parser.add_argument("-v", '--update_db', default=False, action='store_true', help="Boolean toggle. Option to update the sqlite taxonomic db.");
     arg_parser.add_argument("-r", '--reindex', default=False, action='store_true', help="Boolean toggle. Option to update the gi_taxid file index system.");
     arg_parser.add_argument("-q", '--quiet', default=False, action='store_true', help="Boolean toggle. Suppress running feedback. ");
+    arg_parser.add_argument('-e', '--email', default=None, help='Stores an email address to search for gis not found in the gi_taxid files with ncbi entrez query syste,.');
     arg_parser.add_argument('--debug', default=False, action='store_true', help="Boolean toggle. Option to give extensive running feedback to monitor the programs\' progression");
     args = arg_parser.parse_args();
 
@@ -1049,6 +1282,7 @@ if __name__== '__main__':
     db_type=args.db_type;
     debug=args.debug;
     reindex=args.reindex;
+    email=args.email;
 
     if debug:
         def debug(string, gap_=False):
@@ -1059,4 +1293,4 @@ if __name__== '__main__':
         def debug(string, gap_=False):
             pass;
 
-    main(input_path, input_format, output_path, output_format, db_path, db_type, update, update_db, reindex, input_self_path, quiet);
+    main(input_path, input_format, output_path, output_format, db_path, db_type, update, update_db, reindex, input_self_path, email, quiet);
