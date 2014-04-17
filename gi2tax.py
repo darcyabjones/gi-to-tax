@@ -1,4 +1,4 @@
-#!/usr/local/bin/env python
+#!/usr/bin/env python
 
 #Version 1.0.0. Darcy Jones, January 2014.
 #Contact Darcy Jones, darcy.ab.jones@gmail.com
