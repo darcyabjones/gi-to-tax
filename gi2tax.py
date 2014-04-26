@@ -436,6 +436,7 @@ def findArchiveFiles(db_path_files_, archive_files_):
 
 
 def giFinder(input_path_, input_format_):
+    debug("### funct giFinder ###", gap_=True)
     # In > input_file containing gi's to find info for. 
     # Out > set of gi's
     gis_=set();
@@ -484,6 +485,7 @@ def giFinder(input_path_, input_format_):
     return {int(gi) for gi in gis_};
 
 def getGisFromXML(in_file_):
+    debug("### funct getGisFromXML ###", gap_=True)
     blast_record_ = NCBIXML.parse(in_file_);
     gis_=set();
     for blast_query_ in blast_record_:
@@ -496,6 +498,11 @@ def getGisFromXML(in_file_):
             if len(gi_)!=0:
                 gis_|=set(gi_);
                 output_dict[int(gi_[0])]={'gi':int(gi_[0]), 'code':codeGenerator(), 'id':alignment_.hit_id, 'description':alignment_.hit_def}
+            else:
+                gi_ = gi_extract(str(alignment_.hit_def));
+                if len(gi_)!=0:
+                    gis_|=set(gi_);
+                    output_dict[int(gi_[0])]={'gi':int(gi_[0]), 'code':codeGenerator(), 'id':alignment_.hit_id, 'description':alignment_.hit_def}
     return gis_;
 
 def gi_extract(gi_string): #takes string object, returns gid
@@ -523,11 +530,6 @@ def giTaxidContainer(gi_ti_file_, archive_files_, gis_, index_=False):
             gis_ = indexGiTaxidFile(cursor_, extracted_file_, gi_ti_file_, gis_);
         else:
             gis_ = giTaxidFile(cursor_, extracted_file_, gi_ti_file_, gis_);
-    except:
-        debug('Index Failed');
-        debug(sys.exc_info());
-        if debug:
-            raise;
     finally:
         extracted_file_.close();
         connection_.close();
@@ -558,31 +560,38 @@ def indexGiTaxidFile(cursor_, extracted_file_, gi_ti_file_, gis_):
         print('\tFound 0 of {} gi\'s'.format(len_gis_));
         print('\tSearched {} lines in {}'.format(i, gi_ti_file_));
     for line_ in iter(extracted_file_.readline, ''):
-        record_= line_.rstrip('\n').split('\t');
-        gi_ = int(record_[0]);
-        ti_ = int(record_[1]);
-        if gi_ in gis_:
-            gi_dict_[gi_]={'gi':gi_,'taxid':ti_, 'tax_path':[]};
-            gi_dict_[gi_]['tax_path']=findTaxPath(cursor_, ti_, gi_dict_[gi_]['tax_path']);
-            output_handler(gi_dict_[gi_]);
-            gis_.discard(gi_);
-            if not quiet:
-                sys.stdout.write("\033[2A\033[K"); # Moves two lines up, and clears to the end of the line.
-                print('\tFound {} of {} gi\'s'.format(found_count_, len_gis_));
-                sys.stdout.write("\033[2B"); # Moves two lines down
-            if len_gi_taxid_index_<max_len_gi_taxid_index_: # Adds index for found gis, impoves researching same gis
+        try:
+            record_= line_.rstrip('\n').split('\t');
+            gi_ = int(record_[0]);
+            ti_ = int(record_[1]);
+            if gi_ in gis_:
+                gi_dict_[gi_]={'gi':gi_,'taxid':ti_, 'tax_path':[]};
+                gi_dict_[gi_]['tax_path']=findTaxPath(cursor_, ti_, gi_dict_[gi_]['tax_path']);
+                output_handler(gi_dict_[gi_]);
+                gis_.discard(gi_);
+                if not quiet:
+                    sys.stdout.write("\033[2A\033[K"); # Moves two lines up, and clears to the end of the line.
+                    print('\tFound {} of {} gi\'s'.format(found_count_, len_gis_));
+                    sys.stdout.write("\033[2B"); # Moves two lines down
+                if len_gi_taxid_index_<max_len_gi_taxid_index_: # Adds index for found gis, impoves researching same gis
+                    gi_taxid_index_.append((gi_, last_position)); # Stores end of line for gi.
+                    len_gi_taxid_index_+=1;
+                found_count_+=1;
+            if i>=index_counter:
                 gi_taxid_index_.append((gi_, last_position)); # Stores end of line for gi.
-                len_gi_taxid_index_+=1;
-            found_count_+=1;
-        if i>=index_counter:
-            gi_taxid_index_.append((gi_, last_position)); # Stores end of line for gi.
-            index_counter+=index_freq;
-            len_gi_taxid_index_+=1
-            if not quiet:
-                sys.stdout.write("\033[1A\033[K"); # Moves one line up, and clears to the end of the line.
-                print('\tSearched {} lines in {}'.format(i, gi_ti_file_));
-        last_position=extracted_file_.tell()
-        i += 1;
+                index_counter+=index_freq;
+                len_gi_taxid_index_+=1
+                if not quiet:
+                    sys.stdout.write("\033[1A\033[K"); # Moves one line up, and clears to the end of the line.
+                    print('\tSearched {} lines in {}'.format(i, gi_ti_file_));
+            last_position=extracted_file_.tell()
+            i += 1;
+        except ValueError:
+            debug("ValueError in indexGiTaxidFile. On gi|{} with taxid:{}".format(gi_, ti_))
+            raise;
+        except TypeError:
+            debug("TypeError in indexGiTaxidFile. On gi|{} with taxid:{}".format(gi_, ti_))
+            raise;
     if not quiet:
         sys.stdout.write("\033[1A\033[K"); # Moves one line up, and clears to the end of the line.
         print('\tCompleted writing {} gi and ti data'.format(gi_ti_file_));
@@ -619,42 +628,50 @@ def giTaxidFile(cursor_, extracted_file_, gi_ti_file_, gis_):
 
     i=0;
     while i<len_gi_taxid_index_:
-        if len(gis_) >0:
-            lower_bound_gi_=gi_taxid_index_[i][0]
-            if i+1 >= len_gi_taxid_index_:
-                upper_bound_gi_= float('inf');
-                upper_bound_ = float('inf');
+        try:
+            if len(gis_) >0:
+                lower_bound_gi_=gi_taxid_index_[i][0]
+                if i+1 >= len_gi_taxid_index_:
+                    upper_bound_gi_= float('inf');
+                    upper_bound_ = float('inf');
+                else:
+                    upper_bound_gi_=gi_taxid_index_[i+1][0];
+                    upper_bound_= gi_taxid_index_[i+1][1];
+                gi_block_={gi_ for gi_ in gis_ if lower_bound_gi_<= gi_ <upper_bound_gi_};
+                if len(gi_block_) >0:
+                    extracted_file_.seek(gi_taxid_index_[i][1]);
+                    last_position=gi_taxid_index_[i][1];
+                    for line_ in iter(extracted_file_.readline, ''):
+                        if len(gi_block_)>0 and extracted_file_.tell()<=upper_bound_:
+                            _record_= line_.rstrip('\n').split('\t');
+                            gi_ = int(_record_[0]);
+                            if gi_ in gis_:
+                                print(gi_)
+                                ti_ = int(_record_[1]);
+                                gi_dict_[gi_]={'gi':gi_,'taxid':ti_, 'tax_path':[]};
+                                gi_dict_[gi_]['tax_path']=findTaxPath(cursor_, ti_, gi_dict_[gi_]['tax_path']);
+                                output_handler(gi_dict_[gi_]);
+                                gis_.discard(gi_);
+                                gi_block_.discard(gi_);
+                                if not quiet:
+                                    sys.stdout.write("\033[1A\033[K"); # Moves one lines up, and clears to the end of the line.
+                                    print('\tFound {} of {} gi\'s'.format(found_count_, len_gis_));
+                                if len_gi_taxid_index_+len_new_gi_taxid_index_ < max_len_gi_taxid_index_ and gi_ != lower_bound_gi_: # Adds index for found gis, if not already in the list. impoves researching same gis Looking for best way to add this.
+                                    new_gi_taxid_index_.append((gi_, last_position)); # Stores end of line for previous gi. (beginning of line for this one).
+                                    len_new_gi_taxid_index_+=1;
+                                found_count_+=1;
+                        else:
+                            break;
+                        last_position=extracted_file_.tell()
             else:
-                upper_bound_gi_=gi_taxid_index_[i+1][0];
-                upper_bound_= gi_taxid_index_[i+1][1];
-            gi_block_={gi_ for gi_ in gis_ if lower_bound_gi_<= gi_ <upper_bound_gi_};
-            if len(gi_block_) >0:
-                extracted_file_.seek(gi_taxid_index_[i][1]);
-                last_position=gi_taxid_index_[i][1];
-                for line_ in iter(extracted_file_.readline, ''):
-                    if len(gi_block_)>0 and extracted_file_.tell()<=upper_bound_:
-                        _record_= line_.rstrip('\n').split('\t');
-                        gi_ = int(_record_[0]);
-                        if gi_ in gis_:
-                            ti_ = int(_record_[1]);
-                            gi_dict_[gi_]={'gi':gi_,'taxid':ti_, 'tax_path':[]};
-                            gi_dict_[gi_]['tax_path']=findTaxPath(cursor_, ti_, gi_dict_[gi_]['tax_path']);
-                            output_handler(gi_dict_[gi_]);
-                            gis_.discard(gi_);
-                            gi_block_.discard(gi_);
-                            if not quiet:
-                                sys.stdout.write("\033[1A\033[K"); # Moves one lines up, and clears to the end of the line.
-                                print('\tFound {} of {} gi\'s'.format(found_count_, len_gis_));
-                            if len_gi_taxid_index_+len_new_gi_taxid_index_ < max_len_gi_taxid_index_ and gi_ != lower_bound_gi_: # Adds index for found gis, if not already in the list. impoves researching same gis Looking for best way to add this.
-                                new_gi_taxid_index_.append((gi_, last_position)); # Stores end of line for previous gi. (beginning of line for this one).
-                                len_new_gi_taxid_index_+=1;
-                            found_count_+=1;
-                    else:
-                        break;
-                    last_position=extracted_file_.tell()
-        else:
-            break;
-        i+=1;
+                break;
+            i+=1;
+        except ValueError:
+            debug("ValueError in giTaxidFile. On gi|{} with taxid:{}".format(gi_, ti_))
+            raise;
+        except TypeError:
+            debug("TypeError in giTaxidFile. On gi|{} with taxid:{}".format(gi_, ti_))
+            raise;
 
     if not quiet:
         print('\tCompleted writing {} gi and ti data'.format(gi_ti_file_));
@@ -666,31 +683,42 @@ def giTaxidFile(cursor_, extracted_file_, gi_ti_file_, gis_):
 
 def findTaxPath(cursor_, ti_, gi_tax_path_): #Recursive function inputs ti_, returns dict of all parent tis;
     debug("### funct findTaxPath ###", gap_=True);
-    cursor_.execute("""
-        SELECT * FROM nodes WHERE tax_id = ?
-        """, (ti_,));
-    node_row_=cursor_.fetchone(); # We specified row_factory as sqlite3.Row earlier so we can access values by column name, ACE!
-    rank=node_row_['rank']; # eg Superkingdom, kingdom, genus etc.
-    parent_taxid=node_row_['parent_tax_id'];
+    try:
+        cursor_.execute("""
+            SELECT * FROM nodes WHERE tax_id = ?
+            """, (ti_,));
+        node_row_=cursor_.fetchone(); # We specified row_factory as sqlite3.Row earlier so we can access values by column name, ACE!
+        rank=node_row_['rank']; # eg Superkingdom, kingdom, genus etc.
+        parent_taxid=node_row_['parent_tax_id'];
 
-    cursor_.execute("""
-        SELECT * FROM names WHERE tax_id = ?
-        """, (ti_,));
-    name_row_=cursor_.fetchone();
-    
-    if name_row_['unique_name'] != "": # If there is an unique name specified use that name rather than the duplicate
-        rank_name=name_row_['unique_name'];
-    else: # if there wasn't an unique name specified we can assume that the name_txt column is unique.
-        rank_name=name_row_['name_txt'];
+        cursor_.execute("""
+            SELECT * FROM names WHERE tax_id = ?
+            """, (ti_,));
+        name_row_=cursor_.fetchone();
+        
+        if name_row_['unique_name'] != "": # If there is an unique name specified use that name rather than the duplicate
+            rank_name=name_row_['unique_name'];
+        else: # if there wasn't an unique name specified we can assume that the name_txt column is unique.
+            rank_name=name_row_['name_txt'];
 
-    debug('{} is a {} called {}'.format(ti_, rank, rank_name));
+        debug('{} is a {} called {}'.format(ti_, rank, rank_name));
 
-    new_node_entry_={'taxid':ti_, 'parent_taxid':parent_taxid, 'rank':rank, 'rank_name':rank_name};
-    gi_tax_path_.append(new_node_entry_);
-    if parent_taxid != 1: # 1 is the lowest node possible. All taxonomic paths end up at 1 after superkingdom.
-        gi_tax_path_=findTaxPath(cursor_, parent_taxid, gi_tax_path_);
-    
-    return gi_tax_path_;
+        new_node_entry_={'taxid':ti_, 'parent_taxid':parent_taxid, 'rank':rank, 'rank_name':rank_name};
+        gi_tax_path_.append(new_node_entry_);
+        if parent_taxid != 1: # 1 is the lowest node possible. All taxonomic paths end up at 1 after superkingdom.
+            gi_tax_path_=findTaxPath(cursor_, parent_taxid, gi_tax_path_);
+        return gi_tax_path_;
+    except ValueError:
+        debug("ValueError in findTaxPath. On taxid:{}".format(ti_))
+        #debug("namerow: {}".format(name_row_))
+        #debug("gi_tax_path_: {}".format(gi_tax_path_))
+        raise;
+    except TypeError:
+        debug("TypeError in findTaxPath. On taxid:{}".format(ti_))
+        #debug("noderow: {}".format(node_row_))
+        #debug("namerow: {}".format(name_row_))
+        #debug("gi_tax_path_: {}".format(gi_tax_path_))
+        raise;
 
 
 def output_handler(record_):
@@ -785,7 +813,7 @@ def rowWriter(row_, type_):
                 out_row_.append(-1);
             else:
                 out_row_.append('.');
-
+    print(out_row_)
     if type_ == 'SQLite':
         return tuple(out_row_);
     elif type_ == 'tab':
@@ -812,8 +840,8 @@ def phyloxmlTreeGeneratorRecurse(taxid=1):
     else:
         if 'rank' in tree_dict[taxid]:
             rank_=tree_dict[taxid]['rank']
-            if rank_=='no_rank' or rank_=='no rank' or rank_=='superkingdom':
-                rank_=None;
+            if rank_ not in Phylo.PhyloXML.Taxonomy.ok_rank:
+                rank_="other";
         else:
             rank_=None;
         
@@ -838,16 +866,16 @@ def newickTreeGeneratorRecurse(taxid=1):
     for child_ in tree_dict[taxid]['children']:
         children_.append(newickTreeGeneratorRecurse(child_));
 
-    if len(children_)==1:
+    if len(children_)==1: # Drops nodes with only one child. eg genus with only one species.
         return children_[0];
     else:
         if taxid == 1:
-            rank_name_=None; 
+            rank_name_=None;
         else:
             if len(children_)==0:
                 children_=None;
                 rank_name_=str(tree_dict[taxid]['rank_name']);
-                #rank_name_=str(taxid); #might be more useful?      
+                #rank_name_=str(taxid); #might be more useful?
                 # Remove newick illegal characters from name
                 regex=re.compile("[\s,]+"); # One or more whitespace characters
                 rank_name_= re.sub(regex, '_', rank_name_);
@@ -857,7 +885,7 @@ def newickTreeGeneratorRecurse(taxid=1):
                 rank_name_=None;
 
 
-        this_node_ = Clade2(name=rank_name_, clades=children_, branch_length=0.1);
+        this_node_ = Clade2(name=rank_name_, clades=children_, branch_length=1.0);
         return this_node_;
 
 
@@ -937,9 +965,8 @@ def findTiTTaxonomy(tis_):
     except:
         success_=False;
         debug('There was an error in finding info for tis')
-        debug(sys.exc_info())
-        if debug:
-            raise;
+        debug(sys.exc_info())  
+        raise;
     finally:
         connection_.close();
 
@@ -1010,7 +1037,7 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
 
     if output_path == '-' or output_path == sys.stdout or output_path == None:
         quiet=True;
-    if input_path == '-' or input_path == sys.stdin:
+    if input_path == '-' or input_path == sys.stdin or input_path == None:
         input_path=sys.stdin;
 
     if not quiet:
@@ -1039,6 +1066,8 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
     tax_ftp_path='pub/taxonomy';
     req_files={};
 
+
+    #####  Process Taxonomic archives #####
     if db_type=='protein' or db_type=='both':
         req_files['gi_taxid_prot.dmp']='gi_taxid_prot.zip';
     if db_type=='nucleotide' or db_type=='both':
@@ -1087,6 +1116,8 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
         archive_files = findArchiveFiles(db_path_files, archive_files);
         debug("Updated Archives: {}".format(archive_files));
 
+
+    #### Do the actual work of finding taxonomy ########
     try:
         if 'newick' in output_format or 'phyloXML' in output_format:
             global tree_dict;
@@ -1195,24 +1226,15 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
         if 'phyloXML' in output_format:
             phyloxml_common_tree=phyloxmlTreeGenerator();
 
-    except:
-        debug('Error in finding taxonomic path and writing files.');
-        debug(sys.exc_info());
-        if debug:
-            raise;
-
-    finally:
         if not quiet:
             print('\n######  Writing Selected Output   ######');
         if 'tab' in output_format:
-            if isinstance(out_tab_file, file) and out_tab_file != sys.stdout:
-                out_tab_file.close();
-            if not quiet:   print('\tFinished writing tab file');
+            if not quiet:   
+                print('\tFinished writing tab file');
         if 'SQLite' in output_format:
             output_cursor.execute("create index taxid_index on taxonomy (taxid)");
             output_cursor.execute("create index code_index on taxonomy (code)")
             output_connection.commit();
-            output_connection.close();
             if not quiet:   print('\tFinished writing SQLite database');
         if 'pickle' in output_format:
             if output_path == '-' or output_path == sys.stdout:
@@ -1249,8 +1271,16 @@ def main(input_path, input_format, output_path, output_format, db_path='./tax_db
                     Phylo.write(phyloxml_common_tree, outfile_, 'phyloxml');
                 if not quiet:   print('\tFinished writing phyloXML file to: {}'.format('{}.xml'.format(os.path.splitext(output_path)[0])));
 
-        if not quiet:
-            print('\n####################### End gi2tax #######################\n');
+    finally:
+        if isinstance(out_tab_file, file) and out_tab_file != sys.stdout:
+            out_tab_file.close();
+        if 'SQLite' in output_format:
+            output_connection.close();
+
+
+
+    if not quiet:
+        print('\n####################### End gi2tax #######################\n');
 
 
 

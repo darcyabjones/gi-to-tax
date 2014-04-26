@@ -117,3 +117,12 @@ Example tab file (Where spaces between values are tabs):
 	.	3702	17529069
 
 The first line contains column headings. For the first record (second line) gi2tax will use gene1 as the unique id and find taxonomic information corresponding to taxid 3702 (Arabidopsis thaliana). The second record contains both an id and a gi, gi2tax will use the gi as the unique identifier and find taxonomic information for taxid 192845 (Erucastrum strigosum). While the third record is missing an id, because it has a value for gi this record is still valid and gi2taxid will use gi as the unique identifier and find taxonomic information for taxid 3702.
+
+
+Known Issues
+-------------------------
+
+gi2tax cannot yet resolve events where the taxid given from the gi\_taxid\_\*.dmp is an alternative taxid that does not exist in the FTP names and nodes database.
+An example would be taxid 0, which is an alternative for taxid 562 (E. coli).
+If when gi2tax.py is running you get a TypeError, this is the likely problem. 
+Currently, the suggested work around is to use Entrez esummary to search the offending taxid and find the common taxid, then replace the taxid in gi\_taxid\_\*.dmp using your interface of choice, eg python, perl, AWK.
