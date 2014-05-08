@@ -286,7 +286,8 @@ def localArchiveQC(file_, ftp_, versions_dict_):
     # Checks that the local copy of the archive is the size that it should be. If it's not we assume that it is corrupted.
     debug('### funct localArchiveQC ###', gap_=True);
     file_name_=os.path.split(file_)[1].split('.')[0];
-
+    # ensure this is accessable below the following if block
+    ftp_file_size_ = 0
     local_file_size_=os.stat(file_).st_size; # find the size of the local archive file.
     if file_name_ in versions_dict_: # if there is size information in the versions pickle dict use that
         ftp_file_size_=versions_dict_[file_name_]['size'];
