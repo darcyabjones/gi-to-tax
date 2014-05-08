@@ -24,6 +24,7 @@
 
 ###Import modules
 
+from __future__ import print_function
 import sys;
 import argparse;
 from ftplib import FTP;
@@ -286,7 +287,8 @@ def localArchiveQC(file_, ftp_, versions_dict_):
     # Checks that the local copy of the archive is the size that it should be. If it's not we assume that it is corrupted.
     debug('### funct localArchiveQC ###', gap_=True);
     file_name_=os.path.split(file_)[1].split('.')[0];
-
+    # ensure this is accessable below the following if block
+    ftp_file_size_ = 0
     local_file_size_=os.stat(file_).st_size; # find the size of the local archive file.
     if file_name_ in versions_dict_: # if there is size information in the versions pickle dict use that
         ftp_file_size_=versions_dict_[file_name_]['size'];
@@ -560,6 +562,8 @@ def indexGiTaxidFile(cursor_, extracted_file_, gi_ti_file_, gis_):
         print('\tFound 0 of {} gi\'s'.format(len_gis_));
         print('\tSearched {} lines in {}'.format(i, gi_ti_file_));
     for line_ in iter(extracted_file_.readline, ''):
+        gi_ = 0
+        ti_ = 0
         try:
             record_= line_.rstrip('\n').split('\t');
             gi_ = int(record_[0]);
@@ -646,16 +650,15 @@ def giTaxidFile(cursor_, extracted_file_, gi_ti_file_, gis_):
                             _record_= line_.rstrip('\n').split('\t');
                             gi_ = int(_record_[0]);
                             if gi_ in gis_:
-                                print(gi_)
                                 ti_ = int(_record_[1]);
                                 gi_dict_[gi_]={'gi':gi_,'taxid':ti_, 'tax_path':[]};
                                 gi_dict_[gi_]['tax_path']=findTaxPath(cursor_, ti_, gi_dict_[gi_]['tax_path']);
                                 output_handler(gi_dict_[gi_]);
                                 gis_.discard(gi_);
                                 gi_block_.discard(gi_);
-                                if not quiet:
-                                    sys.stdout.write("\033[1A\033[K"); # Moves one lines up, and clears to the end of the line.
-                                    print('\tFound {} of {} gi\'s'.format(found_count_, len_gis_));
+                                if (not quiet) and found_count_ % 100 == 0:
+                                    progress =  "\r\tFound {} of {} gi's".format(found_count_,len_gis_)
+                                    print(progress, end='')
                                 if len_gi_taxid_index_+len_new_gi_taxid_index_ < max_len_gi_taxid_index_ and gi_ != lower_bound_gi_: # Adds index for found gis, if not already in the list. impoves researching same gis Looking for best way to add this.
                                     new_gi_taxid_index_.append((gi_, last_position)); # Stores end of line for previous gi. (beginning of line for this one).
                                     len_new_gi_taxid_index_+=1;
@@ -695,7 +698,6 @@ def findTaxPath(cursor_, ti_, gi_tax_path_): #Recursive function inputs ti_, ret
             SELECT * FROM names WHERE tax_id = ?
             """, (ti_,));
         name_row_=cursor_.fetchone();
-        
         if name_row_['unique_name'] != "": # If there is an unique name specified use that name rather than the duplicate
             rank_name=name_row_['unique_name'];
         else: # if there wasn't an unique name specified we can assume that the name_txt column is unique.
@@ -813,7 +815,6 @@ def rowWriter(row_, type_):
                 out_row_.append(-1);
             else:
                 out_row_.append('.');
-    print(out_row_)
     if type_ == 'SQLite':
         return tuple(out_row_);
     elif type_ == 'tab':
