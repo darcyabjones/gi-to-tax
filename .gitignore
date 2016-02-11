@@ -11,8 +11,6 @@
 *.tar
 *.zip
 *.swp
-*.xml
-*.tab
 
 # Logs and databases #
 ######################
@@ -22,6 +20,14 @@
 *.sqlite
 *.db
 *.dmp
+*.tsv
+*.json
+*.md5
+*.index
+*.xml
+*.tab
+*.prt
+*.txt
 
 # OS generated files #
 ######################
@@ -38,3 +44,4 @@ Thumbs.db
 data/
 wiki/
 tax_db/
+env/
