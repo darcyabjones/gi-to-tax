@@ -61,10 +61,10 @@ class Coder(object):
 
     def __init__(
             self,
-            length=9,
+            length=6,
             alphabet=(
-                "0123456789"
                 "abcdefghijklmnopqrstuvwxyz"
+                "123456789"
                 "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                 ),
             ):
@@ -295,7 +295,6 @@ def find_tax_path(cursor, ti, gi_tax_path):
     cursor.execute("""
         SELECT * FROM nodes WHERE tax_id = ?
         """, (ti,))
-
     """ We specified row_factory as sqlite3.Row earlier so we can access
     values by column name, ACE! """
     node_row = cursor.fetchone()
@@ -326,6 +325,32 @@ def find_tax_path(cursor, ti, gi_tax_path):
         gi_tax_path = find_tax_path(cursor, parent_taxid, gi_tax_path)
 
     return gi_tax_path
+
+
+def jsonl_handler(handle):
+    try:
+        for i, line in enumerate(handle):
+            yield i + 1, json.loads(line)
+    except ValueError:
+        handle.seek(0)
+        return enumerate(json.load(handle))
+
+
+def xsv_handler(handle, sep=r"\t"):
+    columns = None
+    for i, line in enumerate(handle):
+        sline = line.rstrip().split(sep)
+        if columns is None:
+            columns = sline
+            continue
+
+        record = dict()
+        for col, val in zip(columns, sline):
+            try:
+                record[col] = int(val)
+            except ValueError:
+                record[col] = val
+        yield i + 1, record
 
 
 "################################### Main ###################################"
@@ -367,7 +392,7 @@ def main(
             before printing.
             """
             if isinstance(clear, int):
-                printer_handle.write('\033[{}A\033[K'.format(clear))
+                sys.stdout.write('\033[{}A\033[K'.format(clear))
             print(string)
             if isinstance(clear, int):
                 sys.stdout.write('\033[{}B'.format(clear))
@@ -403,6 +428,23 @@ def main(
                 gi = these_gis[0]
                 gi['description'] = seq.description
                 gis[gi['gi']] = gi
+    elif in_format in {'json', 'tsv'}:
+        if in_format == 'json':
+            handler = jsonl_handler(in_file)
+        elif in_format == 'tsv':
+            handler = xsv_handler(in_file)
+
+        for i, record in handler:
+            if 'gi' in record:
+                gis[str(record['gi'])] = record
+            elif 'id' in record and 'taxid' in record:
+                gis["id:" + str(record['id'])] = record
+            else:
+                sys.stderr.write(
+                    "Error reading line {} in {}. ".format(i, in_file.name) +
+                    "Each record must have at least a gi, or an id and taxid."
+                    )
+                sys.exit()
 
     coder = Coder()
     for i, (gi, record) in enumerate(gis.items()):
@@ -446,6 +488,8 @@ def main(
         'nucleotide': os.path.join(db_path, 'gi_taxid_nucl.dmp'),
         }
 
+    no_tax_info = list()
+
     # Need to get GIs
     for db in db_type:
         try:
@@ -482,12 +526,6 @@ def main(
             found_count = len_gis - remaining
             for gi, ti in get_gi_taxid(handle, gis, gi_taxid_index):
                 gis[gi]['taxid'] = ti
-                gis[gi]['tax_path'] = find_tax_path(
-                    cursor,
-                    ti,
-                    list()
-                    )
-                out_file.write(json.dumps(gis[gi]) + "\n")
                 found_count += 1
                 printer("Searching {} gi_taxid file... {} of {}".format(
                     db,
@@ -495,6 +533,16 @@ def main(
                     len_gis),
                     1
                     )
+                if ti == 0:
+                    no_tax_info.append(str(gi))
+                else:
+                    gis[gi]['tax_path'] = find_tax_path(
+                        cursor,
+                        ti,
+                        list()
+                        )
+                out_file.write(json.dumps(gis[gi]) + "\n")
+
             printer("Searching {} gi_taxid file... Done".format(db), 1)
 
         finally:
@@ -543,10 +591,11 @@ def main(
                         )
                     out_file.write(json.dumps(record) + "\n")
                     found_count += 1
-                    printer("Searching Entrez {} database... {} of {}".format(
-                        db,
-                        found_count,
-                        len_gis),
+                    printer(
+                        "Searching Entrez {} database... {} of {}".format(
+                            db,
+                            found_count,
+                            len_gis),
                         1
                         )
 
@@ -555,11 +604,22 @@ def main(
 
         printer("Searching for gis using Entrez... Done", 2)
 
-    not_found = [k for k, v in gis.items() if 'taxid' not in v]
+    not_found = [str(k) for k, v in gis.items() if 'taxid' not in v]
     if len(not_found) > 0:
-        printer("Note gi2tax could not find taxids for gis:")
+        printer("Note - gi2tax could not find taxids for gis:")
         for i, j in zip(range(0, len(not_found)), range(3, len(not_found))):
-            printer("\t" + ", ".join(not_found[i, j]))
+            printer("\t" + ", ".join(not_found[i:j]))
+
+    if len(no_tax_info) > 0:
+        printer(
+            "Note - the organism is unknown for the following gis "
+            "(taxid == 0):"
+            )
+        for i, j in zip(
+                range(0, len(no_tax_info)),
+                range(3, len(no_tax_info))
+                ):
+            printer("\t" + ", ".join(no_tax_info[i:j]))
 
 
 "############################# Command line args ############################"
@@ -590,7 +650,7 @@ if __name__ == '__main__':
         "-f", "--format",
         dest='in_format',
         default="regex",
-        choices=['regex', 'blastxml', 'fasta', 'clustal', 'json'],
+        choices=['regex', 'blastxml', 'fasta', 'clustal', 'json', 'tsv'],
         help=(
             "The format of the files that you are finding gi's from. "
             "By default gi2tax uses a regular expression pattern."
@@ -615,7 +675,7 @@ if __name__ == '__main__':
         type=argparse.FileType('w'),
         help=(
             "Path to write output to. "
-            "Default is stdout."
+            "Enter '-' for stdout (default)."
             )
         )
     arg_parser.add_argument(
@@ -623,8 +683,7 @@ if __name__ == '__main__':
         dest="db_path",
         default="",
         help=(
-            "Path to SQLite taxonomic db (a directory or folder). "
-            "If no db exists at path one will be created. "
+            "Path to the NCBI taxonomy files (a directory). "
             "Default is current working directory."
             )
         )
@@ -633,7 +692,9 @@ if __name__ == '__main__':
         dest="db_type",
         default='both',
         help=(
-            "Which set of gi's do you want to map to the taxonomy database. "
+            "Specifies which gi to taxid databases (local and Entrez) gi2tax "
+            "should search for your gis in. Searching through both will "
+            "take longer than going through one. "
             "Default is 'both'."
             ),
         choices=['protein', 'nucleotide', 'both']
