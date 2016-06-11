@@ -21,13 +21,21 @@ from Bio.Phylo.BaseTree import Tree
 from Bio.Phylo.BaseTree import Clade as Clade2
 
 program = "gi2tax"
-version = "0.1.0"
+version = "0.2.0"
 author = "Darcy Jones"
 date = "14 January 2016"
 email = "darcy.ab.jones@gmail.com"
+
+program_len = "=" * len(program)
 short_blurb = (
     "Remove duplicate sequences from a sequence file."
     )
+blurb = (
+    "{program}\n"
+    "{program_len}\n"
+    "\n"
+    "{short_blurb}\n"
+    ).format(**locals())
 license = (
     '{program}-{version}\n'
     '{short_blurb}\n\n'
@@ -45,58 +53,13 @@ license = (
     '\n\n'
     'You should have received a copy of the GNU General Public License '
     'along with this program. If not, see <http://www.gnu.org/licenses/>.'
-    )
+    ).format(**locals())
 
-license = license.format(**locals())
 
 "################################# Globals ##################################"
 
+
 GI_REGEX = r"gi[\|\_]?[\s]*(\d+)\S*"
-
-
-"################################# Classes ##################################"
-
-
-class Coder(object):
-
-    def __init__(
-            self,
-            length=6,
-            alphabet=(
-                "abcdefghijklmnopqrstuvwxyz"
-                "123456789"
-                "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                ),
-            ):
-        self.length = length
-        self.alphabet = alphabet
-        self.n = len(self.alphabet)
-        return
-
-    def __getitem__(self, key):
-        return self.index(key)
-
-    def index(self, pattern):
-        if len(pattern) == 0:
-            return 0
-
-        if isinstance(pattern, str):
-            pattern = list(pattern)
-
-        character = pattern.pop(-1)
-        return self.n * self.index(pattern) + self.alphabet.index(character)
-
-    def pattern(self, index, k=None):
-        if k is None:
-            k = self.length
-
-        assert k > 0
-        if k == 1:
-            return self.alphabet[index]
-
-        prefix_index = index // self.n
-        r = index % self.n
-        return self.pattern(prefix_index, k - 1) + self.alphabet[r]
 
 
 "################################# Functions ################################"
@@ -224,7 +187,8 @@ def get_gi_taxid(handle, gis, gi_taxid_index):
         else:
             upper_bound_gi = gi_taxid_index[i + 1][0]
             upper_bound = gi_taxid_index[i + 1][1]
-        gi_block = {gi for gi in gis if lower_bound_gi <= gi < upper_bound_gi}
+        gi_block = {gi['gi'] for k, gi in gis.items() if lower_bound_gi <= gi['gi'] < upper_bound_gi}
+
         if len(gi_block) == 0:
             continue
         handle.seek(gi_taxid_index[i][1])
@@ -436,7 +400,7 @@ def main(
 
         for i, record in handler:
             if 'gi' in record:
-                gis[str(record['gi'])] = record
+                gis[int(record['gi'])] = record
             elif 'id' in record and 'taxid' in record:
                 gis["id:" + str(record['id'])] = record
             else:
@@ -445,14 +409,6 @@ def main(
                     "Each record must have at least a gi, or an id and taxid."
                     )
                 sys.exit()
-
-    coder = Coder()
-    for i, (gi, record) in enumerate(gis.items()):
-        record['code'] = coder.pattern(i)
-        if "name" not in record:
-            record['name'] = ""
-        if "description" not in record:
-            record['description'] = ""
 
     len_gis = len(gis)
 
@@ -515,7 +471,7 @@ def main(
                         1
                         )
                 with open(gi_taxid_dbs[db] + '.index', 'w') as json_handle:
-                    json.dump(gi_taxid_index, json_handle)
+                    json.dump(index, json_handle)
                 printer("Indexing {} gi_taxid file... Done".format(db), 1)
 
             printer("Searching {} gi_taxid file...".format(db))
@@ -586,7 +542,7 @@ def main(
                     record['taxid'] = entrez_record[0]['TaxId']
                     record['tax_path'] = find_tax_path(
                         cursor,
-                        ti,
+                        record['taxid'],
                         list()
                         )
                     out_file.write(json.dumps(record) + "\n")
@@ -628,9 +584,11 @@ def main(
 if __name__ == '__main__':
     arg_parser = argparse.ArgumentParser(
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        description=license,
+        description=blurb,
         epilog=(
-            "Example usage:\n"
+            "Example usage\n"
+            "-------------\n"
+            "\n"
             "$ %(prog)s -i my_fasta.fna -f regex -o my_fasta.faa "
             "-d ./tax_dbs -t protein -e your@email.com\n"
             ""

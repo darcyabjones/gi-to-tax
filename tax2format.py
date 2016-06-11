@@ -25,11 +25,15 @@ version = "0.1.0"
 author = "Darcy Jones"
 date = "14 January 2016"
 email = "darcy.ab.jones@gmail.com"
+blurb = (
+    "{program}\n"
+    "{:<}"
+    )
 short_blurb = (
     "Remove duplicate sequences from a sequence file."
     )
 license = (
-    '{program}-{version}\n'
+    '{program} {version}\n'
     '{short_blurb}\n\n'
     'Copyright (C) {date},  {author}'
     '\n\n'
@@ -45,15 +49,12 @@ license = (
     '\n\n'
     'You should have received a copy of the GNU General Public License '
     'along with this program. If not, see <http://www.gnu.org/licenses/>.'
-    )
-
-license = license.format(**locals())
+    ).format(**locals())
 
 
 "################################# Globals ##################################"
 
 ORDER = [
-    "code",
     "id",
     "gi",
     "name",
