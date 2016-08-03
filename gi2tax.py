@@ -297,7 +297,8 @@ def jsonl_handler(handle):
             yield i + 1, json.loads(line)
     except ValueError:
         handle.seek(0)
-        return enumerate(json.load(handle))
+        for i, line in enumerate(json.load(handle)):
+            yield i + 1, line
 
 
 def xsv_handler(handle, sep=r"\t"):
@@ -454,15 +455,18 @@ def main(
             connection.row_factory = sqlite3.Row
             cursor = connection.cursor()
 
-            if not os.path.isfile(gi_taxid_dbs[db] + '.index'):
+            try:
+                with open(gi_taxid_dbs[db] + '.index', 'r') as json_handle:
+                    gi_taxid_index = json.load(json_handle
+            except ValueError:
                 handle.seek(0, 2)
                 handle_size = handle.tell()
                 handle.seek(0)
 
                 printer("Indexing {} gi_taxid file... ".format(db))
-                index = list()
+                gi_taxid_index = list()
                 for gi, position in get_gi_taxid_index(handle):
-                    index.append((gi, position))
+                    gi_taxid_index.append((gi, position))
                     printer(
                         "Indexing {} gi_taxid file... {:>4.0%}".format(
                             db,
@@ -471,12 +475,10 @@ def main(
                         1
                         )
                 with open(gi_taxid_dbs[db] + '.index', 'w') as json_handle:
-                    json.dump(index, json_handle)
+                    json.dump(gi_taxid_index, json_handle)
                 printer("Indexing {} gi_taxid file... Done".format(db), 1)
 
             printer("Searching {} gi_taxid file...".format(db))
-            with open(gi_taxid_dbs[db] + '.index', 'r') as json_handle:
-                gi_taxid_index = json.load(json_handle)
 
             remaining = len([gi for gi, r in gis.items() if 'taxid' not in r])
             found_count = len_gis - remaining
