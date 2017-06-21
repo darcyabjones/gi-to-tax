@@ -246,7 +246,12 @@ def gi_extract(gi_string):
     hits = regex.finditer(gi_string.strip())
     for match in hits:
         id_ = match.group(0)
-        gi = int(match.group(1))
+        if (id_) == "":
+            break
+        try:
+            gi = int(match.group(1))
+        except:
+            gi = int(id_)
         gis[gi] = {'gi': gi, 'id': id_}
     return gis
 
@@ -333,6 +338,7 @@ def main(
         quiet=False
         ):
 
+    global GI_REGEX
     GI_REGEX = gi_regex
 
     # Set quiet to true if writing output to stdout.
@@ -390,7 +396,9 @@ def main(
         for seq in sequences:
             these_gis = list(gi_extract(seq.id))
             if len(these_gis) != 0:
-                gi = these_gis[0]
+                gi = {}
+                gi['gi'] = these_gis[0]
+                print (gi)
                 gi['description'] = seq.description
                 gis[gi['gi']] = gi
     elif in_format in {'json', 'tsv'}:
@@ -455,10 +463,10 @@ def main(
             connection.row_factory = sqlite3.Row
             cursor = connection.cursor()
 
-            try:
+            if (os.path.isfile(gi_taxid_dbs[db] + '.index')):
                 with open(gi_taxid_dbs[db] + '.index', 'r') as json_handle:
-                    gi_taxid_index = json.load(json_handle
-            except ValueError:
+                    gi_taxid_index = json.load(json_handle)
+            else:
                 handle.seek(0, 2)
                 handle_size = handle.tell()
                 handle.seek(0)
@@ -474,7 +482,7 @@ def main(
                             ),
                         1
                         )
-                with open(gi_taxid_dbs[db] + '.index', 'w') as json_handle:
+                with open(gi_taxid_dbs[db] + '.index', 'r') as json_handle:
                     json.dump(gi_taxid_index, json_handle)
                 printer("Indexing {} gi_taxid file... Done".format(db), 1)
 
