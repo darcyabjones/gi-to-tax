@@ -44,15 +44,15 @@ You will however, need to provide an email address (a requirement for Entrez API
 Examples
 -------
 
-	gi2tax.py -i my_blast_result.xml -g blastxml -t protein -o my_blast_result_taxonomy.json
+	gi2tax.py -i my_blast_result.xml -f blastxml -t protein -o my_blast_result_taxonomy.json
 
 Searches the protein gi_taxid file for the gis present in `my_blast_result.xml`.
 
-	gi2tax.py -i sequence_file.fa -g fasta -d my_db_path -o sequence_file_taxonomy.json
+	gi2tax.py -i sequence_file.fa -f fasta -d my_db_path -o sequence_file_taxonomy.json
 
 Searches the for taxonomic information for gis found in `sequence_file.fa` in both the nucleotide and protein sets of gis.
 
-	gi2tax.py -i my_taxids.json -g json -e myemail@example.com > my_taxids_taxonomy.json
+	gi2tax.py -i my_taxids.json -f json -e myemail@example.com > my_taxids_taxonomy.json
 
 Finds taxonomic information for a set of gis or taxids from a line delimited json file.
 This could contain records that are not associated with a gi, but have a known taxid (eg. from a draft genome sequence; see below for a detailed explanation on how to use this feature).
