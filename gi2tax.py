@@ -398,7 +398,6 @@ def main(
             if len(these_gis) != 0:
                 gi = {}
                 gi['gi'] = these_gis[0]
-                print (gi)
                 gi['description'] = seq.description
                 gis[gi['gi']] = gi
     elif in_format in {'json', 'tsv'}:
@@ -482,7 +481,7 @@ def main(
                             ),
                         1
                         )
-                with open(gi_taxid_dbs[db] + '.index', 'r') as json_handle:
+                with open(gi_taxid_dbs[db] + '.index', 'w') as json_handle:
                     json.dump(gi_taxid_index, json_handle)
                 printer("Indexing {} gi_taxid file... Done".format(db), 1)
 

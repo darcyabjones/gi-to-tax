@@ -14,7 +14,7 @@ blurb = (
     "{:<}"
     )
 short_blurb = (
-    "Formats the json output of gi2tax.py as FASTA headers compatable with Munch's Statistical Assignmnet Package (SAP)"
+    "Formats the json output of gi2tax.py as FASTA headers compatable with Munch's Statistical Assignmnet Package (SAP): github.com/kaspermunch/sap"
     )
 license = (
     '{program} {version}\n'
@@ -72,7 +72,7 @@ def main(in_file, out_file):
             if output is not None:
                 output.write(rank_str)
             else: # STDOUT
-                sys.stdout.write(rank_str)
+                sys.stdout.write(rank_str + '\n')
         except Exception:
             pass
 
@@ -87,7 +87,8 @@ if __name__ == '__main__':
         default=sys.stdin,
         type=argparse.FileType('r'),
         help=(
-            "Path to input file containing gi's. "
+            "Path to input file containing taxonomy "
+            "output by gi2tax.py. "
             "Enter '-' for stdin (default)."
         )
     )

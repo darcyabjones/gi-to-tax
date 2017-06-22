@@ -4,7 +4,8 @@ gi-to-tax
 Takes a group of genbank identifiers (gi's) and finds a full taxonomic path for it from NCBI's taxonomy database.
 To make the most of UNIX pipes and avoid rerunning the time consuming steps, gi-to-tax is split into two parts: gi2tax and tax2format.
 gi2tax constructs an SQLite table containing all names and nodes of taxomonic ids, then Searches through gis to find taxonomic identifiers (using indexing where appropriate) and a recursive function to find the full taxonomic lineage, with output as a [line delimited JSON file](http://jsonlines.org/).
-tax2format takes the JSON output of gi2tax and can produce output in other convenient formats such as [tsv](https://en.wikipedia.org/wiki/Tab-separated_values), [csv](https://en.wikipedia.org/wiki/Comma-separated_values), [newick tree](https://en.wikipedia.org/wiki/Newick_format), or [phyloXML tree](http://www.phyloxml.org/).
+tax2format takes the JSON output of gi2tax and can produce output in other convenient formats such as [tsv](https://en.wikipedia.org/wiki/Tab-separated_values), [csv](https://en.wikipedia.org/wiki/Comma-separated_values), [newick tree](https://en.wikipedia.org/wiki/Newick_format), or [phyloXML tree](http://www.phyloxml.org/). An additional program, tax2sap, is like tax2format but specifically for [SAP](https://github.com/kaspermunch/sap). Tax2sap outputs lines that are to be used as the sequence headers of a custom SAP database fasta file. 
+
 
 
 Setup
@@ -61,6 +62,10 @@ gi2tax will attempt to retrieve taxids for gis not found in the local nucleotide
 	tax2format.py -i sequence_file_taxonomy.json -f tsv -o sequence_file_taxonomy.tsv
 
 Converts line-delimited JSON output from gi2tax into a spreadsheet friendly tab separated values format.
+
+	tax2sap.py -i sequence_file_taxonomy.json -o sequence_headers.sap
+
+Converts line-delimited JSON output from gi2tax into a text format that can be used as sequence headers in a fasta file that is then compatable with [SAP](https://github.com/kaspermunch/sap). 
 
 User specified taxids
 -------------------------
