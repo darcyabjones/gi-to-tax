@@ -64,13 +64,13 @@ def main(in_file, out_file):
             rank_str = ">" + gi + " ; "
             for node in tax_path:
                 if node['rank'] in accepted_taxon_ranks:
-                    rank_str = rank_str + node['rank'].replace(",", "_")  + ": " + (node['rank_name']) + ", "
+                    rank_str = rank_str + node['rank'].replace(",", "_").replace(";", "_").replace(":", "_")  + ": " + (node['rank_name']).replace(",", "_").replace(";", "_").replace(":", "_") + ", "
 
             rank_str = rank_str[0:-2]
             rank_str = rank_str + " ; " + id
             rank_str = re.sub (r'<.*>', "", rank_str)
             if output is not None:
-                output.write(rank_str)
+                output.write(rank_str + '\n')
             else: # STDOUT
                 sys.stdout.write(rank_str + '\n')
         except Exception:
