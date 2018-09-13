@@ -1,6 +1,15 @@
 gi-to-tax
 =========
 
+** This repo is no longer maintained. There are a lot of alternatives out there. **
+
+See:
+
+- <http://etetoolkit.org/documentation/ete-ncbiquery/>
+- <https://github.com/koriege/acctotax>
+
+
+
 Takes a group of genbank identifiers (gi's) and finds a full taxonomic path for it from NCBI's taxonomy database.
 To make the most of UNIX pipes and avoid rerunning the time consuming steps, gi-to-tax is split into two parts: gi2tax and tax2format.
 gi2tax constructs an SQLite table containing all names and nodes of taxomonic ids, then Searches through gis to find taxonomic identifiers (using indexing where appropriate) and a recursive function to find the full taxonomic lineage, with output as a [line delimited JSON file](http://jsonlines.org/).
